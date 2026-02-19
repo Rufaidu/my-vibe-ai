@@ -109,7 +109,8 @@ with st.sidebar:
         st.rerun()
 
 # --- 6. MAIN CHAT SYSTEM ---
-st.title("🧠 VibeOS Brain")
+st.title("🧠 VibeOS")
+st.subheader("Your Personal AI Workspace")
 
 # Re-display memory
 for msg in st.session_state.messages:
