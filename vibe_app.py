@@ -63,17 +63,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. SET UP THE BRAIN (SECRETS) ---
-# It looks for 'GOOGLE_API_KEY' in your Streamlit Secrets
-# --- 2. SET UP THE BRAIN (DIRECT TEST) ---
-api_key = "AIzaSyBmkDQ8dl_g5h45kFWszwR0_Kyu5cbAl0I" # Paste your key here directly inside quotes
+# --- 2. SET UP THE BRAIN (MANUAL OVERRIDE) ---
+# We are putting the key directly here to bypass the "Secrets" issue
+api_key = "AIzaSyBmkDQ8dl_g5h45kFWszwR0_Kyu5cbAl0I"
 
-if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.error("Key missing!")
-
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- 3. THE FETCH ENGINE ---
 def download_media(url):
