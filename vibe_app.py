@@ -65,16 +65,15 @@ st.markdown("""
 
 # --- 2. SET UP THE BRAIN (SECRETS) ---
 # It looks for 'GOOGLE_API_KEY' in your Streamlit Secrets
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("Neural Link (Google API Key)", type="password")
+# --- 2. SET UP THE BRAIN (DIRECT TEST) ---
+api_key = "AIzaSyBmkDQ8dl_g5h45kFWszwR0_Kyu5cbAl0I" # Paste your key here directly inside quotes
 
 if api_key:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
 else:
-    st.info("👋 Enter your Google API Key in the sidebar or Secrets to unlock the brain.")
+    st.error("Key missing!")
+
 
 # --- 3. THE FETCH ENGINE ---
 def download_media(url):
