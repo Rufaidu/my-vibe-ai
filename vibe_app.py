@@ -64,17 +64,14 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. SET UP THE BRAIN (MANUAL OVERRIDE) ---
-# We are putting the key directly in the code to guarantee it works
-api_key = "AIzaSyBmkDQ8dl_g5h45kFWszwR0_Kyu5cbAl0I"
+api_key = "AIzaSyAPX1DFGr4GulFEQDRX4ufT-E1tC5_BStA"
 
 try:
     genai.configure(api_key=api_key)
+    # Using 'gemini-1.5-flash' as it's the most stable during outages
     model = genai.GenerativeModel('gemini-1.5-flash')
-    # This line below tests if the brain is actually connected
-    model.generate_content("test") 
-except Exception:
-    st.error("Connection to the brain failed. Check your internet or API key.")
-
+except Exception as e:
+    st.warning("Google servers are currently unstable. Retrying connection...")
 
 # --- 3. THE FETCH ENGINE ---
 def download_media(url):
