@@ -2,19 +2,27 @@ import streamlit as st
 import time
 import uuid
 import requests
+import openai
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Vibe AI", page_icon="🔥", layout="wide")
 
-# ================= LOAD HF API KEY =================
+# ================= LOAD API KEYS =================
 try:
     HF_API_KEY = st.secrets["HF_API_KEY"]
 except Exception:
     st.error("Add your HF_API_KEY to Streamlit Secrets before running.")
     st.stop()
 
-# ================= MODEL ENDPOINTS (FALLBACK LIST) =================
-MODEL_ENDPOINTS = [
+# Optional (if you have them)
+GEMINI_KEY = st.secrets.get("GEMINI_KEY", None)
+OPENAI_KEY = st.secrets.get("OPENAI_KEY", None)
+
+if OPENAI_KEY:
+    openai.api_key = OPENAI_KEY
+
+# ================= MODELS =================
+HF_MODELS = [
     "https://router.huggingface.co/models/tiiuae/falcon-h1-1.5b-instruct",
     "https://router.huggingface.co/models/tiiuae/falcon3-1b-instruct",
     "https://router.huggingface.co/models/google/flan-t5-xl",
@@ -22,25 +30,60 @@ MODEL_ENDPOINTS = [
     "https://router.huggingface.co/models/facebook/opt-2.7b-instruct"
 ]
 
-# ================= QUERY FUNCTION WITH RETRY + FALLBACK =================
+# ================= QUERY FUNCTIONS =================
 def query_hf(prompt, retries=3, delay=2):
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {"inputs": prompt, "options": {"use_cache": False}}
-
-    for model_url in MODEL_ENDPOINTS:
+    for model_url in HF_MODELS:
         for _ in range(retries):
             try:
-                response = requests.post(model_url, json=payload, headers=headers, timeout=60)
-                data = response.json()
+                resp = requests.post(model_url, json={"inputs": prompt, "options":{"use_cache": False}}, headers=headers, timeout=60)
+                data = resp.json()
                 if isinstance(data, dict) and "error" in data:
-                    # model busy or not supported
                     time.sleep(delay)
                     continue
-                # success
                 return data[0]["generated_text"]
-            except Exception:
+            except:
                 time.sleep(delay)
-    return "⚠️ Sorry, all models are busy. Please try again later."
+                continue
+    return None
+
+def query_gemini(prompt):
+    if not GEMINI_KEY:
+        return None
+    # Pseudo Gemini API request — replace with real Gemini API code
+    # Example structure:
+    # resp = requests.post("https://gemini.api.endpoint", headers={"Authorization": f"Bearer {GEMINI_KEY}"}, json={"prompt": prompt})
+    # return resp.json()["response"]
+    return None  # placeholder if you don't have Gemini API yet
+
+def query_openai(prompt):
+    if not OPENAI_KEY:
+        return None
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except:
+        return None
+
+def query_multi_provider(prompt):
+    # Try Hugging Face first
+    result = query_hf(prompt)
+    if result:
+        return result
+    # Then Gemini
+    result = query_gemini(prompt)
+    if result:
+        return result
+    # Then OpenAI
+    result = query_openai(prompt)
+    if result:
+        return result
+    # All failed
+    return "⚠️ Sorry, all providers/models are busy. Please try again later."
 
 # ================= CUSTOM DARK UI =================
 st.markdown("""
@@ -66,22 +109,18 @@ current_chat = st.session_state.chats[st.session_state.current_chat]
 # ================= SIDEBAR =================
 with st.sidebar:
     st.title("🔥 Vibe AI")
-
     if st.button("➕ New Chat"):
         new_id = str(uuid.uuid4())
         st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
         st.session_state.current_chat = new_id
         st.rerun()
-
     st.markdown("### Chats")
     for chat_id, chat_data in st.session_state.chats.items():
         if st.button(chat_data["title"], key=chat_id):
             st.session_state.current_chat = chat_id
             st.rerun()
-
     st.markdown("---")
-    st.caption("Using multiple Hugging Face models with fallback")
-
+    st.caption("Using multiple providers: Hugging Face → Gemini → OpenAI")
     if st.button("🗑 Delete Current Chat"):
         del st.session_state.chats[st.session_state.current_chat]
         if not st.session_state.chats:
@@ -111,21 +150,19 @@ uploaded_file = st.file_uploader("Upload file (optional)", type=["pdf", "png", "
 prompt = st.chat_input("Message Vibe AI...")
 if prompt:
     current_chat["messages"].append({"role": "user", "content": prompt})
-
     if current_chat["title"] == "New Chat":
         current_chat["title"] = prompt[:30]
 
-    # Use only last 5 messages
+    # last 5 messages
     conversation = ""
     for msg in current_chat["messages"][-5:]:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
-    # Query with retries/fallback
     with st.spinner("Vibe AI is thinking..."):
-        bot_reply = query_hf(conversation)
+        bot_reply = query_multi_provider(conversation)
 
-    # typing animation
+    # streaming typing animation
     full_response = ""
     placeholder = st.empty()
     for word in bot_reply.split():
