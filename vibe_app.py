@@ -40,25 +40,33 @@ st.markdown("""
 # --- 2. THE BRAIN (API SECRETS) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Using 'gemini-1.5-flash' for multimodal support (Images + Text)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Try the most stable version first
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    except:
+        # Fallback if 'flash-latest' isn't in your region yet
+        model = genai.GenerativeModel('gemini-pro')
 else:
     st.error("Missing API Key! Please add it to your Streamlit Secrets.")
     st.stop()
 
 # --- 3. VIDEO DOWNLOADER LOGIC ---
-def download_video(url):
+def download_media(url):
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+    
     ydl_opts = {
         'format': 'best',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'quiet': True,
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     }
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info)
+        # THIS LINE IS VITAL:
+        return ydl.prepare_filename(info) 
 
 # --- 4. SESSION MEMORY ---
 if "messages" not in st.session_state:
