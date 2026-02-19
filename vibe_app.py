@@ -64,7 +64,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. SET UP THE BRAIN (MANUAL OVERRIDE) ---
-api_key = "AIzaSyAPX1DFGr4GulFEQDRX4ufT-E1tC5_BStA"
+# Change it back to this in vibe_app.py:
+api_key = st.secrets["GOOGLE_API_KEY"]
 
 try:
     genai.configure(api_key=api_key)
