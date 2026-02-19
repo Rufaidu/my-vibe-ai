@@ -5,64 +5,61 @@ import os
 import re
 import json
 
-# --- 1. DEEPSEEK STYLE UI (MINIMALIST) ---
+# --- 1. THE DEEPSEEK CLONE INTERFACE (CSS) ---
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="centered")
 
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp { background-color: #ffffff; color: #1a1a1a; }
-    [data-theme="dark"] .stApp { background-color: #0e1117; color: #ffffff; }
+    /* DeepSeek Aesthetic: Clean & Spaced */
+    .stApp { background-color: #f4f4f7; color: #1a1a1a; }
+    [data-theme="dark"] .stApp { background-color: #0e1117; color: #e0e0e0; }
 
-    /* Hide default Streamlit elements for a clean look */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    /* Centered Content Area */
+    .main .block-container { max-width: 800px; padding-top: 2rem; }
 
-    /* THE FLOATING BOTTOM BAR (The DeepSeek Look) */
+    /* THE FLOATING INPUT BAR */
     .stChatInput { 
         position: fixed; 
         bottom: 30px; 
         z-index: 1000; 
-        padding: 0 5%;
+        background: transparent !important;
     }
-    
-    /* Integrated Plus Button positioning */
+    [data-testid="stChatInput"] { 
+        border: 1px solid #d1d5db !important; 
+        border-radius: 16px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
+        background-color: white !important;
+    }
+
+    /* THE PLUS ICON: Integrated next to the input */
     .stFileUploader {
         position: fixed;
         bottom: 38px;
-        left: calc(50% - 340px); /* Adjust based on chat width */
-        width: 45px !important;
+        left: calc(50% - 380px); /* Adjust based on centered layout */
+        width: 40px !important;
         z-index: 1001;
     }
-    
-    @media (max-width: 800px) {
-        .stFileUploader { left: 20px; }
-    }
+    @media (max-width: 800px) { .stFileUploader { left: 10px; } }
 
-    /* Styling the Plus Button to be a simple '+' */
-    .stFileUploader section { padding: 0 !important; min-height: unset !important; border: none !important; }
+    /* Hide the 'Drag and Drop' text - make it just an icon */
+    .stFileUploader section { padding: 0 !important; min-height: unset !important; border: none !important; background: transparent !important; }
     .stFileUploader label, .stFileUploader span, .stFileUploader small { display: none !important; }
     .stFileUploader button {
-        background-color: transparent !important;
-        color: #888 !important;
-        border: 1px solid #ddd !important;
-        border-radius: 8px !important;
+        background-color: #f9fafb !important;
+        color: #4b5563 !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 50% !important;
         height: 40px !important;
         width: 40px !important;
         font-size: 20px !important;
     }
 
-    /* Chat Input Styling */
-    [data-testid="stChatInput"] {
-        border-radius: 12px !important;
-        border: 1px solid #ddd !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
-    }
+    /* Message Bubbles */
+    .stChatMessage { border-radius: 15px; margin-bottom: 1rem; border: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. THE TOOLS (DOWNLOADER & MEMORY) ---
+# --- 2. THE ENGINE ---
 HISTORY_FILE = "vibe_history.json"
 
 def save_history(messages):
@@ -75,38 +72,35 @@ def load_history():
         except: return []
     return []
 
-def download_media(url):
+def download_video(url):
+    """Simplified Downloader"""
     if not os.path.exists('downloads'): os.makedirs('downloads')
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'quiet': True,
-    }
+    ydl_opts = {'format': 'best', 'outtmpl': 'downloads/%(title)s.%(ext)s', 'quiet': True}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
-# --- 3. BRAIN SETUP ---
+# --- 3. AI SETUP ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        active_model = next((m for m in available if "flash" in m), available[0])
-        model = genai.GenerativeModel(active_model)
+        model_name = next((m for m in available if "flash" in m), available[0])
+        model = genai.GenerativeModel(model_name)
     except:
-        st.error("Brain Connection Error.")
+        st.error("Brain Connection Failed.")
         st.stop()
 else:
-    st.error("Missing API Key.")
+    st.error("Missing API Key in Secrets!")
     st.stop()
 
 if "messages" not in st.session_state:
     st.session_state.messages = load_history()
 
-# --- 4. TOP NAV BAR ---
+# --- 4. TOP BAR ---
 col_logo, col_new = st.columns([0.8, 0.2])
 with col_logo:
-    st.subheader("Vibe AI")
+    st.title("Vibe AI")
 with col_new:
     if st.button("＋ New Chat"):
         st.session_state.messages = []
@@ -118,37 +112,35 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 6. FLOATING INPUTS ---
-# Plus button for files
-uploaded_file = st.file_uploader("+", type=["jpg", "png", "pdf", "txt"], key="plus_vibe")
-# Main Chat bar
-prompt = st.chat_input("How can Vibe AI help you today?")
+# --- 6. INPUTS (UNIQUE KEYS TO PREVENT DUPLICATE ID ERROR) ---
+uploaded_file = st.file_uploader("+", type=["jpg", "png", "pdf", "txt"], key="vibe_plus_v3")
+prompt = st.chat_input("How can I help you today?", key="vibe_chat_v3")
 
-# --- 7. PROCESSING ---
+# --- 7. LOGIC ---
 if uploaded_file:
-    st.session_state.messages.append({"role": "user", "content": f"📎 Attached file: {uploaded_file.name}"})
+    st.session_state.messages.append({"role": "user", "content": f"📎 Attached: {uploaded_file.name}"})
     save_history(st.session_state.messages)
     st.rerun()
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # URL Detection for Downloads
+    # URL Detection Logic
     url_match = re.search(r'(https?://\S+)', prompt)
     if url_match:
         with st.chat_message("assistant"):
             try:
-                with st.spinner("Processing media link..."):
-                    path = download_media(url_match.group(1))
+                with st.spinner("Analyzing link..."):
+                    path = download_video(url_match.group(1))
                     with open(path, "rb") as f:
-                        st.download_button("💾 Download File", f, file_name=os.path.basename(path))
+                        st.download_button("💾 Download Detected File", f, file_name=os.path.basename(path))
             except:
-                st.write("Link detected, but download is unavailable for this site.")
+                st.write("I found a link, but I couldn't download it. Please check the URL.")
     else:
-        # Standard Chat
+        # Standard AI Response
         with st.chat_message("assistant"):
             context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
-            response = model.generate_content(f"You are Vibe AI, a helpful assistant. History:\n{context}\nUser: {prompt}")
+            response = model.generate_content(f"System: You are Vibe AI. \n{context}\nUser: {prompt}")
             st.session_state.messages.append({"role": "assistant", "content": response.text})
     
     save_history(st.session_state.messages)
