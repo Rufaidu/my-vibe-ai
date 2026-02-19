@@ -95,6 +95,38 @@ if prompt_data:
                 response = model.generate_content(f"Context: {history}\nUser: {user_text}")
                 st.markdown(response.text)
                 st.session_state.messages.append({"role": "assistant", "content": response.text})
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing image..."):
+                    res = model.generate_content(["Describe this image for VibeOS", img])
+                    st.markdown(res.text)
+                    st.session_state.messages.append({"role": "assistant", "content": res.text})
+
+    # Handle Text / URL Detection
+    if user_text:
+        st.session_state.messages.append({"role": "user", "content": user_text})
+        with st.chat_message("user"):
+            st.markdown(user_text)
+
+        # Detect URL for Auto-Download
+        url_match = re.search(r'(https?://\S+)', user_text)
+        if url_match:
+            video_url = url_match.group(1)
+            with st.chat_message("assistant"):
+                with st.spinner(f"Detecting video at {video_url}..."):
+                    try:
+                        file_path = download_video(video_url)
+                        with open(file_path, "rb") as f:
+                            st.download_button("💾 Download Detected Video", f, file_name=os.path.basename(file_path))
+                    except:
+                        st.write("I see a link, but I couldn't fetch a video from it.")
+
+        # Regular Chat Response
+        else:
+            with st.chat_message("assistant"):
+                history = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+                response = model.generate_content(f"Context: {history}\nUser: {user_text}")
+                st.markdown(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         # THIS LINE IS VITAL:
