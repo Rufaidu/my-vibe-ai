@@ -1,20 +1,19 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
 import yt_dlp
 import os
 import re
 import json
 
-# --- 1. THE VIBE AI UI (FIXED CSS) ---
+# --- 1. CLEAN UI & PLUS BUTTON CSS ---
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0e1117; color: #00f2ff; padding-bottom: 120px; }
-    h1 { color: #00f2ff; text-shadow: 0 0 10px #00f2ff; text-align: center; }
-
-    /* THE PLUS BUTTON: Shrunk to a small square icon */
+    h1 { color: #00f2ff; text-shadow: 0 0 10px #00f2ff; text-align: center; margin-bottom: 0px; }
+    
+    /* THE PLUS BUTTON ICON */
     .stFileUploader { 
         position: fixed; 
         bottom: 25px; 
@@ -34,12 +33,9 @@ st.markdown("""
         width: 48px !important;
         font-size: 28px !important;
         font-weight: bold !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
     }
 
-    /* THE CHAT INPUT: Slimmed and pushed right of the Plus button */
+    /* THE CHAT INPUT */
     .stChatInput { 
         position: fixed; 
         bottom: 20px; 
@@ -56,7 +52,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. TOOLS & PERSISTENT HISTORY ---
+# --- 2. TOOLS & MEMORY ---
 HISTORY_FILE = "vibe_history.json"
 
 def save_history(messages):
@@ -70,7 +66,6 @@ def load_history():
     return []
 
 def download_media(url):
-    """Restored Video Downloader Tool"""
     if not os.path.exists('downloads'): os.makedirs('downloads')
     ydl_opts = {
         'format': 'best',
@@ -82,7 +77,7 @@ def download_media(url):
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
-# --- 3. AI BRAIN ---
+# --- 3. BRAIN SETUP ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     try:
@@ -90,7 +85,7 @@ if "GOOGLE_API_KEY" in st.secrets:
         active_model = next((m for m in available if "flash" in m), available[0])
         model = genai.GenerativeModel(active_model)
     except:
-        st.error("AI Brain connection failed.")
+        st.error("AI Brain offline.")
         st.stop()
 else:
     st.error("Missing API Key in Secrets!")
@@ -99,30 +94,34 @@ else:
 if "messages" not in st.session_state:
     st.session_state.messages = load_history()
 
-# --- 4. MAIN INTERFACE ---
-st.title("🧠 Vibe AI")
+# --- 4. TOP BAR (CLEAR HISTORY) ---
+col_title, col_clear = st.columns([0.8, 0.2])
+with col_title:
+    st.title("🧠 Vibe AI")
+with col_clear:
+    if st.button("🗑️ Clear"):
+        st.session_state.messages = []
+        if os.path.exists(HISTORY_FILE):
+            os.remove(HISTORY_FILE)
+        st.rerun()
 
-# Use a container so the layout stays consistent
+# --- 5. CHAT VIEW ---
 chat_holder = st.container()
 with chat_holder:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-# --- 5. INPUTS (FIXED KEYS) ---
-uploaded_file = st.file_uploader("+", type=["jpg", "png", "jpeg"], key="vibe_plus_final")
-prompt = st.chat_input("Message Vibe AI...", key="vibe_chat_final")
+# --- 6. INPUTS ---
+uploaded_file = st.file_uploader("+", type=["jpg", "png", "jpeg", "txt", "pdf"], key="vibe_plus")
+prompt = st.chat_input("Message Vibe AI or paste link...", key="vibe_chat")
 
-# --- 6. LOGIC ---
+# --- 7. LOGIC ---
 if uploaded_file:
-    img = Image.open(uploaded_file)
-    with chat_holder:
-        st.image(img, width=200)
-        if st.button("🚀 Analyze Now"):
-            res = model.generate_content(["What is this?", img])
-            st.session_state.messages.append({"role": "assistant", "content": res.text})
-            save_history(st.session_state.messages)
-            st.rerun()
+    # Just acknowledging file for now since you wanted media scanner removed
+    st.session_state.messages.append({"role": "user", "content": f"Uploaded file: {uploaded_file.name}"})
+    save_history(st.session_state.messages)
+    st.rerun()
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -135,14 +134,12 @@ if prompt:
                     with st.spinner("Fetching media..."):
                         path = download_media(url_match.group(1))
                         with open(path, "rb") as f:
-                            # This renders the download button for you
-                            st.download_button("💾 DOWNLOAD VIDEO", f, file_name=os.path.basename(path))
+                            st.download_button("💾 DOWNLOAD NOW", f, file_name=os.path.basename(path))
                 except:
                     st.write("Link detected, but download failed.")
     else:
         with chat_holder:
             with st.chat_message("assistant"):
-                # Memory logic: sends last 5 messages for context
                 context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
                 response = model.generate_content(f"History:\n{context}\nUser: {prompt}")
                 st.session_state.messages.append({"role": "assistant", "content": response.text})
