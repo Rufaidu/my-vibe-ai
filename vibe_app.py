@@ -10,22 +10,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= LOAD HUGGING FACE API KEY =================
+# ================= LOAD HF API KEY =================
 try:
     HF_API_KEY = st.secrets["HF_API_KEY"]
 except Exception:
-    st.error("Add HF_API_KEY inside Streamlit Secrets.")
+    st.error("Add your HF_API_KEY to Streamlit Secrets before running.")
     st.stop()
 
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct"
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-h1-1.5b-instruct"
 
-# ================= FUNCTION TO QUERY HF MODEL =================
+# ================= QUERY FUNCTION =================
 def query_hf(prompt):
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {
-        "inputs": prompt,
-        "options": {"use_cache": False}
-    }
+    payload = {"inputs": prompt, "options": {"use_cache": False}}
     try:
         response = requests.post(HF_MODEL_URL, json=payload, headers=headers, timeout=60)
         data = response.json()
@@ -46,7 +43,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ================= SESSION STRUCTURE =================
+# ================= SESSION STATE =================
 if "chats" not in st.session_state:
     st.session_state.chats = {}
 
@@ -74,7 +71,7 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-    st.caption(f"Using Hugging Face Model: Mistral-7B-Instruct")
+    st.caption("Using Hugging Face Model: Falcon-H1-1.5B-Instruct")
 
     if st.button("🗑 Delete Current Chat"):
         del st.session_state.chats[st.session_state.current_chat]
@@ -110,13 +107,13 @@ if prompt:
     if current_chat["title"] == "New Chat":
         current_chat["title"] = prompt[:30]
 
-    # Only use last 5 messages to save tokens/quota
+    # Only keep last 5 messages to save tokens
     conversation = ""
     for msg in current_chat["messages"][-5:]:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
-    # Query Hugging Face Model
+    # Query HF Model
     with st.spinner("Vibe AI is thinking..."):
         bot_reply = query_hf(conversation)
 
