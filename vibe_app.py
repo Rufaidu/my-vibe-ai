@@ -86,6 +86,8 @@ def download_media(url):
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
+        # THIS IS THE FIX FOR 403 FORBIDDEN:
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
