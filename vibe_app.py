@@ -129,9 +129,9 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- CREATE THREAD IF NEEDED ----------
+    # ---------- ENSURE THREAD EXISTS ----------
     if st.session_state.thread_id is None:
-        title = user_input[:30]
+        title = (user_input[:30] if len(user_input) > 0 else "New Chat")
         c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
         conn.commit()
         st.session_state.thread_id = c.lastrowid
@@ -159,14 +159,11 @@ if user_input:
 
     else:
         # ---------- MEMORY ----------
-        if st.session_state.thread_id is not None:
-            c.execute(
-                f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
-                (st.session_state.thread_id,)
-            )
-            past = c.fetchall()
-        else:
-            past = []
+        c.execute(
+            f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
+            (st.session_state.thread_id,)
+        )
+        past = c.fetchall()
 
         memory_text = ""
         for u, a in reversed(past):
@@ -210,9 +207,9 @@ if user_input:
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
 
-    if st.session_state.thread_id is not None:
-        c.execute(
-            "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
-            (st.session_state.thread_id, user_input, ai_response)
-        )
-        conn.commit()
+    # Always save conversation safely
+    c.execute(
+        "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
+        (st.session_state.thread_id, user_input, ai_response)
+    )
+    conn.commit()
