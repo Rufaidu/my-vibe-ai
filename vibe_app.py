@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import time
-import google.generativeai as genai
+from google import genai  # correct GenAI SDK
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
@@ -81,20 +81,22 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- GENERATIVE AI CALL ----------
+    # ---------- CALL GEMINI VIA google-genai SDK ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # Configure API key from Streamlit Secrets
-            genai.configure(api_key=st.secrets["AI_STUDIO_API_KEY"])
-            result = genai.text.generate(
-                model="gemini-1.5",        # ← Free model
-                prompt=prompt,
-                max_output_tokens=250
+            # Create the client with your API key from secrets
+            client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
+
+            # Generate text using the Gemini 1.5 model
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",  # free tier model name
+                contents=prompt
             )
-            ai_response = result.text.strip()
+
+            ai_response = response.text
 
         except Exception as e:
-            st.error(f"Generative AI Error: {e}")
+            st.error(f"AI Error: {e}")
             st.stop()
 
     # Typing animation + auto-scroll
