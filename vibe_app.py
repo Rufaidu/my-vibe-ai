@@ -1,94 +1,128 @@
 import streamlit as st
+import sqlite3
 import requests
-import uuid
-import PyPDF2
+import time
 
-st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Vibe AI", page_icon="🔥", layout="wide")
 
-# ====== SESSION STATE ======
-if "chats" not in st.session_state:
-    st.session_state.chats = {}
-if "current_chat" not in st.session_state:
-    new_id = str(uuid.uuid4())
-    st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
-    st.session_state.current_chat = new_id
-if "is_generating" not in st.session_state:
-    st.session_state.is_generating = False
-if "plus_click" not in st.session_state:
-    st.session_state.plus_click = False
+# ------------------ MOBILE APP CSS ------------------
+st.markdown("""
+<style>
+html, body, [class*="css"] {
+    font-family: 'Segoe UI', sans-serif;
+}
 
-current_chat = st.session_state.chats[st.session_state.current_chat]
+body {
+    background-color: #0b0f19;
+    color: white;
+}
 
-# ====== HUGGING FACE SETTINGS ======
-HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
-HF_TOKEN = st.secrets["HF_API_KEY"]
-API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
-HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+.block-container {
+    padding-top: 1rem;
+    padding-bottom: 6rem;
+}
 
-def query_hf(prompt):
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 300}}
-    try:
-        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
-        data = response.json()
-        return data[0]["generated_text"]
-    except:
-        return "⚠️ Model busy or something went wrong."
+.user-bubble {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    padding: 12px;
+    border-radius: 18px;
+    margin: 8px 0;
+    text-align: right;
+    max-width: 75%;
+    margin-left: auto;
+}
 
-# ====== DISPLAY CHAT ======
-for msg in current_chat["messages"]:
-    if msg["role"] == "user":
-        st.markdown(f"<div style='background:#1e293b;padding:14px;border-radius:14px;margin-bottom:10px;text-align:right'>{msg['content']}</div>", unsafe_allow_html=True)
+.ai-bubble {
+    background-color: #1f2937;
+    padding: 12px;
+    border-radius: 18px;
+    margin: 8px 0;
+    max-width: 75%;
+}
+
+.stChatInputContainer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: #111827;
+    padding: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ------------------ DATABASE ------------------
+conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
+c = conn.cursor()
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_input TEXT,
+    ai_response TEXT
+)
+""")
+
+# ------------------ HEADER ------------------
+st.markdown("<h2 style='text-align:center;'>🔥 Vibe AI</h2>", unsafe_allow_html=True)
+st.caption("Powered by Grok")
+
+# ------------------ SESSION ------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# ------------------ DISPLAY CHAT ------------------
+for role, message in st.session_state.messages:
+    if role == "user":
+        st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div style='background:#111827;padding:14px;border-radius:14px;margin-bottom:10px;text-align:left'>{msg['content']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
 
-# ====== CHAT INPUT WITH PLUS BUTTON ======
-col_plus, col_input, col_send = st.columns([0.5,4,1])
+# ------------------ CHAT INPUT ------------------
+user_input = st.chat_input("Message Vibe AI...")
 
-with col_plus:
-    if st.button("➕"):
-        st.session_state.plus_click = True
+if user_input:
+    st.session_state.messages.append(("user", user_input))
 
-# Hidden file uploader triggered by plus button
-if st.session_state.plus_click:
-    uploaded_file = st.file_uploader("Select file", type=["png","jpg","jpeg","pdf","txt"], key="hidden_uploader")
-    if uploaded_file:
-        if uploaded_file.type.startswith("image/"):
-            st.session_state.last_uploaded_text = f"User uploaded an image named {uploaded_file.name}"
-        elif uploaded_file.type == "application/pdf":
-            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            pdf_text = "".join([page.extract_text() for page in pdf_reader.pages])
-            st.session_state.last_uploaded_text = f"User uploaded PDF '{uploaded_file.name}' with content:\n{pdf_text}"
-        elif uploaded_file.type in ["text/plain"]:
-            text = uploaded_file.read().decode("utf-8")
-            st.session_state.last_uploaded_text = f"User uploaded text file '{uploaded_file.name}':\n{text}"
-        st.session_state.plus_click = False
+    # Retrieve memory
+    c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT 5")
+    past = c.fetchall()
 
-with col_input:
-    prompt = st.text_input("Message Vibe AI...", disabled=st.session_state.is_generating, key="chat_input")
+    memory_text = ""
+    for u, a in reversed(past):
+        memory_text += f"User: {u}\nAI: {a}\n"
 
-with col_send:
-    send_clicked = st.button("Send")
+    prompt = memory_text + f"User: {user_input}\nAI:"
 
-# ====== GENERATE RESPONSE ======
-if send_clicked and prompt and not st.session_state.is_generating:
-    st.session_state.is_generating = True
-    current_chat["messages"].append({"role":"user","content":prompt})
-    if current_chat["title"]=="New Chat": current_chat["title"] = prompt[:30]
+    # ------------------ GROK API CALL ------------------
+    with st.spinner("Vibe AI is thinking..."):
+        response = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {st.secrets['GROK_API_KEY']}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "grok-1",
+                "messages": [
+                    {"role": "system", "content": "You are Vibe AI, a smart and modern assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            }
+        )
 
-    conversation = ""
-    for msg in current_chat["messages"][-5:]:
-        role = "User" if msg["role"]=="user" else "Assistant"
-        conversation += f"{role}: {msg['content']}\n"
-    if "last_uploaded_text" in st.session_state and st.session_state.last_uploaded_text:
-        conversation += st.session_state.last_uploaded_text + "\n"
+        ai_response = response.json()["choices"][0]["message"]["content"]
 
+    # Typing animation
     placeholder = st.empty()
-    placeholder.markdown("<div style='background:#111827;padding:14px;border-radius:14px;margin-bottom:10px;text-align:left'><em>🧠 Vibe AI is thinking...</em></div>", unsafe_allow_html=True)
+    typed = ""
+    for char in ai_response:
+        typed += char
+        placeholder.markdown(f"<div class='ai-bubble'>{typed}</div>", unsafe_allow_html=True)
+        time.sleep(0.01)
 
-    with st.spinner("🧠 Generating response..."):
-        bot_reply = query_hf(conversation)
+    st.session_state.messages.append(("ai", ai_response))
 
-    placeholder.markdown(f"<div style='background:#111827;padding:14px;border-radius:14px;margin-bottom:10px;text-align:left'>{bot_reply}</div>", unsafe_allow_html=True)
-    current_chat["messages"].append({"role":"assistant","content":bot_reply})
-    st.session_state.is_generating = False
-    st.experimental_rerun()
+    # Save to DB
+    c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ai_response))
+    conn.commit()
