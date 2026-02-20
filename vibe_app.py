@@ -26,13 +26,13 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create table with timestamp
+# Create table safely
 c.execute("""
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_input TEXT,
     ai_response TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT (datetime('now'))
 )
 """)
 conn.commit()
@@ -44,14 +44,18 @@ if "memory_limit" not in st.session_state:
     st.session_state.memory_limit = 5
 
 # ---------- LOAD PAST 7 DAYS ----------
-seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-c.execute("SELECT user_input, ai_response FROM conversations WHERE created_at >= ? ORDER BY id ASC",
-          (seven_days_ago,))
-messages = c.fetchall()
-st.session_state.messages = []
-for u, a in messages:
-    st.session_state.messages.append(("user", u))
-    st.session_state.messages.append(("ai", a))
+seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+try:
+    c.execute("SELECT user_input, ai_response FROM conversations WHERE created_at >= ? ORDER BY id ASC",
+              (seven_days_ago,))
+    messages = c.fetchall()
+    st.session_state.messages = []
+    for u, a in messages:
+        st.session_state.messages.append(("user", u))
+        st.session_state.messages.append(("ai", a))
+except Exception as e:
+    st.warning(f"Failed to load old messages: {e}")
+    st.session_state.messages = []
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
@@ -107,9 +111,10 @@ if user_input:
     display_chat()
 
     # ---------- SAVE USER INPUT ----------
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        c.execute("INSERT INTO conversations (user_input, ai_response, created_at) VALUES (?, ?, ?)", (user_input, "", now_str))
+        c.execute("INSERT INTO conversations (user_input, ai_response, created_at) VALUES (?, ?, ?)",
+                  (user_input, "", now_str))
         conn.commit()
         conversation_row_id = c.lastrowid
     except Exception as e:
@@ -140,7 +145,7 @@ if user_input:
     else:
         # ---------- MEMORY ----------
         memory_text = ""
-        past = st.session_state.messages[-st.session_state.memory_limit*2:]  # last n user+AI pairs
+        past = st.session_state.messages[-st.session_state.memory_limit*2:]
         for role, msg in past:
             if role == "user":
                 memory_text += f"User: {msg}\n"
@@ -181,15 +186,12 @@ if user_input:
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # ---------- UPDATE AI RESPONSE ----------
+    # ---------- APPEND AI RESPONSE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
 
     try:
-        c.execute(
-            "UPDATE conversations SET ai_response=? WHERE id=?",
-            (ai_response, conversation_row_id)
-        )
+        c.execute("UPDATE conversations SET ai_response=? WHERE id=?", (ai_response, conversation_row_id))
         conn.commit()
     except Exception as e:
         st.error(f"Failed to save AI response: {e}")
