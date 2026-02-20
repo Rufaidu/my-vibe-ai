@@ -53,7 +53,7 @@ def query_openai(prompt):
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            request_timeout=10  # timeout 10s
+            request_timeout=10
         )
         return response.choices[0].message.content
     except:
@@ -161,22 +161,25 @@ for msg in current_chat["messages"]:
 # ================= FILE UPLOAD =================
 uploaded_file = st.file_uploader("Upload file (optional)", type=["pdf", "png", "jpg", "jpeg"])
 
-# ================= CHAT INPUT =================
-prompt = st.chat_input("Message Vibe AI...")
+# ================= CHAT INPUT WITH STOP BUTTON =================
+cols = st.columns([5, 1])
+with cols[0]:
+    prompt = st.chat_input("Message Vibe AI...")
+with cols[1]:
+    if st.button("⏹ Stop AI"):
+        st.session_state.stop_generation = True
+
 if prompt:
     current_chat["messages"].append({"role": "user", "content": prompt})
     if current_chat["title"] == "New Chat":
         current_chat["title"] = prompt[:30]
 
-    # last 5 messages
     conversation = ""
     for msg in current_chat["messages"][-5:]:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
     st.session_state.stop_generation = False
-
-    # placeholder for streaming
     placeholder = st.empty()
     bot_message = {"role": "assistant", "content": ""}
     current_chat["messages"].append(bot_message)
@@ -192,14 +195,8 @@ if prompt:
             bot_message["content"] = full_text
             placeholder.markdown(f"<div class='chat-bubble-bot thinking'>{full_text}</div>", unsafe_allow_html=True)
             time.sleep(0.03)
-        # final render without thinking glow
         if not st.session_state.stop_generation:
             placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", unsafe_allow_html=True)
 
-    # run in a thread so UI is responsive
     thread = threading.Thread(target=generate_response)
     thread.start()
-
-    # add pause/stop button
-    if st.button("⏹ Stop AI"):
-        st.session_state.stop_generation = True
