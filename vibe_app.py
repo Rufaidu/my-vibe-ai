@@ -3,6 +3,8 @@ import time
 import uuid
 import requests
 import openai
+import json
+import threading
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Vibe AI", page_icon="🔥", layout="wide")
@@ -29,74 +31,6 @@ HF_MODELS = [
     "https://router.huggingface.co/models/facebook/opt-2.7b-instruct"
 ]
 
-# ================= QUERY FUNCTIONS =================
-def query_openai(prompt):
-    if not OPENAI_KEY:
-        return None
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        return response.choices[0].message.content
-    except:
-        return None
-
-def query_gemini(prompt):
-    if not GEMINI_KEY:
-        return None
-    # Replace this with real Gemini API call if you have access
-    # Example pseudo-code:
-    # response = requests.post("https://gemini.api.endpoint", headers={"Authorization": f"Bearer {GEMINI_KEY}"}, json={"prompt": prompt})
-    # return response.json()["response"]
-    return None  # placeholder
-
-def query_hf(prompt, retries=3, delay=2):
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    for model_url in HF_MODELS:
-        for _ in range(retries):
-            try:
-                resp = requests.post(model_url, json={"inputs": prompt, "options":{"use_cache": False}}, headers=headers, timeout=60)
-                data = resp.json()
-                if isinstance(data, dict) and "error" in data:
-                    time.sleep(delay)
-                    continue
-                return data[0]["generated_text"]
-            except:
-                time.sleep(delay)
-                continue
-    return None
-
-def query_multi_provider(prompt):
-    # 1️⃣ OpenAI
-    result = query_openai(prompt)
-    if result:
-        return result
-
-    # 2️⃣ Gemini
-    result = query_gemini(prompt)
-    if result:
-        return result
-
-    # 3️⃣ Hugging Face
-    result = query_hf(prompt)
-    if result:
-        return result
-
-    return "⚠️ Sorry, all providers/models are busy. Please try again later."
-
-# ================= CUSTOM DARK UI =================
-st.markdown("""
-<style>
-.stApp { background-color: #0f172a; color: white; }
-[data-testid="stSidebar"] { background-color: #111827; }
-.chat-bubble-user { background: #1e293b; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: right; }
-.chat-bubble-bot { background: #111827; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: left; }
-.center-title { text-align: center; margin-top: 20vh; font-size: 42px; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
 # ================= SESSION STATE =================
 if "chats" not in st.session_state:
     st.session_state.chats = {}
@@ -105,7 +39,85 @@ if "current_chat" not in st.session_state:
     st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
     st.session_state.current_chat = new_id
 
+if "stop_generation" not in st.session_state:
+    st.session_state.stop_generation = False
+
 current_chat = st.session_state.chats[st.session_state.current_chat]
+
+# ================= QUERY FUNCTIONS =================
+def query_openai(prompt):
+    if not OPENAI_KEY:
+        return None
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            request_timeout=10  # timeout 10s
+        )
+        return response.choices[0].message.content
+    except:
+        return None
+
+def query_gemini(prompt):
+    if not GEMINI_KEY:
+        return None
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate"
+        headers = {
+            "Authorization": f"Bearer {GEMINI_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "prompt": {"text": prompt},
+            "temperature": 0.7,
+            "maxOutputTokens": 500
+        }
+        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
+        data = resp.json()
+        return data["candidates"][0]["output"]
+    except:
+        return None
+
+def query_hf(prompt):
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    for model_url in HF_MODELS:
+        try:
+            resp = requests.post(model_url, json={"inputs": prompt, "options":{"use_cache": False}}, headers=headers, timeout=10)
+            data = resp.json()
+            if isinstance(data, dict) and "error" in data:
+                continue
+            return data[0]["generated_text"]
+        except:
+            continue
+    return None
+
+def query_multi_provider(prompt):
+    providers = [
+        {"name": "OpenAI", "func": query_openai},
+        {"name": "Gemini", "func": query_gemini},
+        {"name": "HuggingFace", "func": query_hf}
+    ]
+    for provider in providers:
+        try:
+            result = provider["func"](prompt)
+            if result and "busy" not in result.lower():
+                return result
+        except:
+            continue
+    return "⚠️ Sorry, all providers/models are busy. Please try again later."
+
+# ================= CUSTOM UI =================
+st.markdown("""
+<style>
+.stApp { background-color: #0f172a; color: white; }
+[data-testid="stSidebar"] { background-color: #111827; }
+.chat-bubble-user { background: #1e293b; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: right; }
+.chat-bubble-bot { background: #111827; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: left; transition: box-shadow 0.3s; }
+.chat-bubble-bot.thinking { box-shadow: 0 0 15px 3px #3b82f6; }
+.center-title { text-align: center; margin-top: 20vh; font-size: 42px; font-weight: bold; }
+</style>
+""", unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -162,15 +174,32 @@ if prompt:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
-    with st.spinner("Vibe AI is thinking..."):
-        bot_reply = query_multi_provider(conversation)
+    st.session_state.stop_generation = False
 
-    # streaming typing animation
-    full_response = ""
+    # placeholder for streaming
     placeholder = st.empty()
-    for word in bot_reply.split():
-        full_response += word + " "
-        placeholder.markdown(f"<div class='chat-bubble-bot'>{full_response}</div>", unsafe_allow_html=True)
-        time.sleep(0.02)
+    bot_message = {"role": "assistant", "content": ""}
+    current_chat["messages"].append(bot_message)
 
-    current_chat["messages"].append({"role": "assistant", "content": bot_reply})
+    def generate_response():
+        bot_reply = query_multi_provider(conversation)
+        words = bot_reply.split()
+        full_text = ""
+        for word in words:
+            if st.session_state.stop_generation:
+                break
+            full_text += word + " "
+            bot_message["content"] = full_text
+            placeholder.markdown(f"<div class='chat-bubble-bot thinking'>{full_text}</div>", unsafe_allow_html=True)
+            time.sleep(0.03)
+        # final render without thinking glow
+        if not st.session_state.stop_generation:
+            placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", unsafe_allow_html=True)
+
+    # run in a thread so UI is responsive
+    thread = threading.Thread(target=generate_response)
+    thread.start()
+
+    # add pause/stop button
+    if st.button("⏹ Stop AI"):
+        st.session_state.stop_generation = True
