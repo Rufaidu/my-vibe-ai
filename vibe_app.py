@@ -1,12 +1,13 @@
 import streamlit as st
-import sqlite3
-import time
 import re
+import time
 import os
 import tempfile
+import requests
 from google import genai
 import yt_dlp
-import requests
+import sqlite3
+from datetime import datetime, timedelta
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
@@ -25,55 +26,32 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS threads (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
+# Create table with timestamp
 c.execute("""
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id INTEGER,
     user_input TEXT,
-    ai_response TEXT
+    ai_response TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
+conn.commit()
 
 # ---------- SESSION ----------
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = None
+if "memory_limit" not in st.session_state:
+    st.session_state.memory_limit = 5
 
-# ---------- SIDEBAR ----------
-with st.sidebar:
-    st.title("⚙️ Settings")
-    memory_limit = st.slider("Memory Depth", 1, 15, 5)
-
-    c.execute("SELECT id, title FROM threads ORDER BY created_at DESC")
-    threads = c.fetchall()
-    thread_dict = {t[1]: t[0] for t in threads}
-
-    selected = st.selectbox("Select Chat", ["New Chat"] + list(thread_dict.keys()))
-
-    if selected == "New Chat":
-        st.session_state.thread_id = None
-        st.session_state.messages = []
-    else:
-        st.session_state.thread_id = thread_dict[selected]
-        if st.session_state.thread_id is not None:
-            c.execute(
-                "SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id ASC",
-                (st.session_state.thread_id,)
-            )
-            data = c.fetchall()
-            st.session_state.messages = []
-            for u, a in data:
-                st.session_state.messages.append(("user", u))
-                st.session_state.messages.append(("ai", a))
+# ---------- LOAD PAST 7 DAYS ----------
+seven_days_ago = datetime.now() - timedelta(days=7)
+c.execute("SELECT user_input, ai_response FROM conversations WHERE created_at >= ? ORDER BY id ASC",
+          (seven_days_ago,))
+messages = c.fetchall()
+st.session_state.messages = []
+for u, a in messages:
+    st.session_state.messages.append(("user", u))
+    st.session_state.messages.append(("ai", a))
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
@@ -128,27 +106,13 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- ENSURE THREAD EXISTS IMMEDIATELY ----------
-    if st.session_state.thread_id is None:
-        title = (user_input[:30] if len(user_input) > 0 else "New Chat")
-        try:
-            c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
-            conn.commit()
-            st.session_state.thread_id = c.lastrowid
-        except Exception as e:
-            st.error(f"Failed to create thread: {e}")
-            st.stop()
-
-    # ---------- SAVE PLACEHOLDER CONVERSATION ----------
+    # ---------- SAVE USER INPUT ----------
     try:
-        c.execute(
-            "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
-            (st.session_state.thread_id, user_input, "")
-        )
+        c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ""))
         conn.commit()
         conversation_row_id = c.lastrowid
     except Exception as e:
-        st.error(f"Failed to save conversation: {e}")
+        st.error(f"Failed to save user input: {e}")
         st.stop()
 
     # ---------- HANDLE URL DOWNLOAD ----------
@@ -173,19 +137,17 @@ if user_input:
                 ai_response = f"Download failed: {e}"
 
     else:
-        # ---------- MEMORY ----------
-        c.execute(
-            f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
-            (st.session_state.thread_id,)
-        )
-        past = c.fetchall()
-
+        # ---------- SESSION MEMORY ----------
         memory_text = ""
-        for u, a in reversed(past):
-            memory_text += f"User: {u}\nAI: {a}\n"
+        past = st.session_state.messages[-st.session_state.memory_limit*2:]  # last n user+AI pairs
+        for role, msg in past:
+            if role == "user":
+                memory_text += f"User: {msg}\n"
+            else:
+                memory_text += f"AI: {msg}\n"
 
         system_instruction = (
-            "You are Vibe AI, a powerful assistant. "
+            "You are Vibe AI, a helpful assistant. "
             "Always refer to yourself as 'Vibe AI'. "
             "Be concise and helpful."
         )
@@ -218,7 +180,7 @@ if user_input:
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # ---------- UPDATE CONVERSATION ----------
+    # ---------- UPDATE AI RESPONSE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
 
@@ -229,4 +191,4 @@ if user_input:
         )
         conn.commit()
     except Exception as e:
-        st.error(f"Failed to update conversation: {e}")
+        st.error(f"Failed to save AI response: {e}")
