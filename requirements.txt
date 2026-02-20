@@ -1,3 +1,2 @@
 streamlit==1.32.2
-requests==2.31.0
-aistudio==1.0.7   # AI Studio official Python client
+google‑generativeai==0.2.0
