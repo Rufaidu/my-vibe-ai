@@ -1,31 +1,9 @@
 import streamlit as st
-import uuid
 import requests
-import openai
-import json
+import uuid
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
-
-# ================= LOAD API KEYS =================
-try:
-    HF_API_KEY = st.secrets["HF_API_KEY"]
-except Exception:
-    st.error("Add your HF_API_KEY to Streamlit Secrets before running.")
-    st.stop()
-
-GEMINI_KEY = st.secrets.get("GEMINI_KEY", None)
-OPENAI_KEY = st.secrets.get("OPENAI_KEY", None)
-
-if OPENAI_KEY:
-    openai.api_key = OPENAI_KEY
-
-# ================= HUGGING FACE MODELS =================
-HF_MODELS = [
-    "https://router.huggingface.co/models/tiiuae/falcon-h1-1.5b-instruct",
-    "https://router.huggingface.co/models/tiiuae/falcon3-1b-instruct",
-    "https://router.huggingface.co/models/google/flan-t5-large"
-]
 
 # ================= SESSION STATE =================
 if "chats" not in st.session_state:
@@ -41,75 +19,24 @@ if "is_generating" not in st.session_state:
 
 current_chat = st.session_state.chats[st.session_state.current_chat]
 
-# ================= QUERY FUNCTIONS =================
+# ================= HUGGING FACE SETTINGS =================
+HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+HF_TOKEN = st.secrets["HF_API_KEY"]
+API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-def query_openai(prompt):
-    if not OPENAI_KEY:
-        return None
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            request_timeout=10
-        )
-        return response.choices[0].message.content
-    except:
-        return None
-
-
-def query_gemini(prompt):
-    if not GEMINI_KEY:
-        return None
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
-        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return None
-
-
+# ================= FUNCTIONS =================
 def query_hf(prompt):
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    for model_url in HF_MODELS:
-        try:
-            resp = requests.post(
-                model_url,
-                json={"inputs": prompt},
-                headers=headers,
-                timeout=15
-            )
-            data = resp.json()
-            if isinstance(data, dict) and "error" in data:
-                continue
-            return data[0]["generated_text"]
-        except:
-            continue
-    return None
-
-
-def query_multi_provider(prompt):
-    providers = [
-        query_openai,
-        query_gemini,
-        query_hf
-    ]
-
-    for provider in providers:
-        try:
-            result = provider(prompt)
-            if result:
-                return result
-        except:
-            continue
-
-    return "⚠️ All providers are currently busy. Please try again later."
-
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 300}
+    }
+    try:
+        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
+        data = response.json()
+        return data[0]["generated_text"]
+    except:
+        return "⚠️ Model is busy or something went wrong. Try again."
 
 # ================= CUSTOM UI =================
 st.markdown("""
@@ -153,14 +80,10 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("### Chats")
-
     for chat_id, chat_data in st.session_state.chats.items():
         if st.button(chat_data["title"], key=chat_id):
             st.session_state.current_chat = chat_id
             st.rerun()
-
-    st.markdown("---")
-    st.caption("Provider order: OpenAI → Gemini → HuggingFace")
 
 # ================= LANDING =================
 if not current_chat["messages"]:
@@ -174,6 +97,26 @@ for msg in current_chat["messages"]:
     else:
         st.markdown(f"<div class='chat-bubble-bot'>{msg['content']}</div>", unsafe_allow_html=True)
 
+# ================= MEDIA UPLOAD =================
+uploaded_file = st.file_uploader("Upload a file (image, PDF, TXT)", type=["png","jpg","jpeg","pdf","txt"])
+
+if uploaded_file:
+    if uploaded_file.type.startswith("image/"):
+        st.image(uploaded_file, caption=f"Uploaded Image: {uploaded_file.name}", use_column_width=True)
+        st.session_state.last_uploaded_text = f"User uploaded an image named {uploaded_file.name}"
+    elif uploaded_file.type == "application/pdf":
+        import PyPDF2
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        pdf_text = ""
+        for page in pdf_reader.pages:
+            pdf_text += page.extract_text() + "\n"
+        st.session_state.last_uploaded_text = f"User uploaded PDF '{uploaded_file.name}' with content:\n{pdf_text}"
+    elif uploaded_file.type in ["text/plain"]:
+        text = uploaded_file.read().decode("utf-8")
+        st.session_state.last_uploaded_text = f"User uploaded text file '{uploaded_file.name}':\n{text}"
+    else:
+        st.session_state.last_uploaded_text = None
+
 # ================= CHAT INPUT =================
 prompt = st.chat_input(
     "Message Vibe AI...",
@@ -184,6 +127,7 @@ if prompt and not st.session_state.is_generating:
 
     st.session_state.is_generating = True
 
+    # Save user message
     current_chat["messages"].append({
         "role": "user",
         "content": prompt
@@ -192,25 +136,33 @@ if prompt and not st.session_state.is_generating:
     if current_chat["title"] == "New Chat":
         current_chat["title"] = prompt[:30]
 
+    # Build conversation context (last 5 messages + uploaded file text)
     conversation = ""
     for msg in current_chat["messages"][-5:]:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
+    if "last_uploaded_text" in st.session_state and st.session_state.last_uploaded_text:
+        conversation += st.session_state.last_uploaded_text + "\n"
+
+    # Show thinking placeholder
     placeholder = st.empty()
     placeholder.markdown(
         "<div class='chat-bubble-bot'><em>🧠 Vibe AI is thinking...</em></div>",
         unsafe_allow_html=True
     )
 
+    # Query Hugging Face model
     with st.spinner("🧠 Generating response..."):
-        bot_reply = query_multi_provider(conversation)
+        bot_reply = query_hf(conversation)
 
+    # Display bot response
     placeholder.markdown(
         f"<div class='chat-bubble-bot'>{bot_reply}</div>",
         unsafe_allow_html=True
     )
 
+    # Save bot message
     current_chat["messages"].append({
         "role": "assistant",
         "content": bot_reply
