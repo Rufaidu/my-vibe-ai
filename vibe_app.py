@@ -5,7 +5,7 @@ import time
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
-# ---------- STYLES ----------
+# ------------------ CSS ------------------
 st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
@@ -17,7 +17,7 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- DATABASE ----------
+# ------------------ DATABASE ------------------
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
@@ -28,10 +28,10 @@ CREATE TABLE IF NOT EXISTS conversations (
 )
 """)
 
-# ---------- HEADER ----------
+# ------------------ HEADER ------------------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
+# ------------------ SIDEBAR ------------------
 with st.sidebar:
     st.title("⚙️ Settings")
     memory_limit = st.slider("Memory Depth", 1, 15, 5)
@@ -46,10 +46,11 @@ with st.sidebar:
     for item in history:
         st.caption("• " + item[0][:40])
 
-# ---------- CHAT ----------
+# ------------------ SESSION ------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# ------------------ DISPLAY CHAT ------------------
 for role, message in st.session_state.messages:
     if role == "user":
         st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
@@ -69,37 +70,30 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- GEMINI REST CALL ----------
+    # ------------------ AI STUDIO API CALL ------------------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{st.secrets['GCP_PROJECT']}/locations/us-central1/publishers/google/models/gemini-pro:predict"
-
+            url = "https://aistudio.google.com/api/v1/predict"  # AI Studio API endpoint
             headers = {
-                "Authorization": f"Bearer {st.secrets['GEMINI_API_KEY']}",
+                "Authorization": f"Bearer {st.secrets['AI_STUDIO_API_KEY']}",
                 "Content-Type": "application/json"
             }
-
             payload = {
-                "instances": [
-                    {"prompt": prompt}
-                ],
-                "parameters": {"maxOutputTokens": 250}
+                "model": "gemini-pro",   # you can change to "gemini-1.5"
+                "prompt": prompt,
+                "max_output_tokens": 250
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=30)
-
-            if response.status_code != 200:
-                st.error(f"API Error: {response.status_code} {response.text}")
-                st.stop()
-
+            response.raise_for_status()
             data = response.json()
-            ai_response = data["predictions"][0]["content"]
+            ai_response = data.get("prediction", "No response from AI Studio.")
 
         except requests.exceptions.RequestException as e:
-            st.error(f"Network/API Error: {e}")
+            st.error(f"API Error: {e}")
             st.stop()
 
-    # typing animation
+    # Typing animation
     placeholder = st.empty()
     typed = ""
     for char in ai_response:
