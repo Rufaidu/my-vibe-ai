@@ -5,7 +5,7 @@ import time
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
-# ------------------ CSS ------------------
+# ---------- STYLES ----------
 st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
@@ -17,7 +17,7 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------ DATABASE ------------------
+# ---------- DATABASE ----------
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
@@ -28,10 +28,10 @@ CREATE TABLE IF NOT EXISTS conversations (
 )
 """)
 
-# ------------------ HEADER ------------------
+# ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
-# ------------------ SIDEBAR ------------------
+# ---------- SIDEBAR ----------
 with st.sidebar:
     st.title("⚙️ Settings")
     memory_limit = st.slider("Memory Depth", 1, 15, 5)
@@ -46,11 +46,10 @@ with st.sidebar:
     for item in history:
         st.caption("• " + item[0][:40])
 
-# ------------------ SESSION ------------------
+# ---------- CHAT ----------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ------------------ DISPLAY CHAT ------------------
 for role, message in st.session_state.messages:
     if role == "user":
         st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
@@ -62,7 +61,7 @@ user_input = st.chat_input("Message Vibe AI...")
 if user_input:
     st.session_state.messages.append(("user", user_input))
 
-    # Retrieve memory
+    # build prompt with memory
     c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
     memory_text = ""
@@ -70,11 +69,10 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ------------------ GEMINI REST API CALL ------------------
+    # ---------- GEMINI REST CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # Simple endpoint for Gemini API
-            url = "https://api.gemini.com/v1/generate"  # Replace with real Gemini REST endpoint if different
+            url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{st.secrets['GCP_PROJECT']}/locations/us-central1/publishers/google/models/gemini-pro:predict"
 
             headers = {
                 "Authorization": f"Bearer {st.secrets['GEMINI_API_KEY']}",
@@ -82,9 +80,10 @@ if user_input:
             }
 
             payload = {
-                "model": "gemini-pro",
-                "prompt": prompt,
-                "max_output_tokens": 250
+                "instances": [
+                    {"prompt": prompt}
+                ],
+                "parameters": {"maxOutputTokens": 250}
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -94,13 +93,13 @@ if user_input:
                 st.stop()
 
             data = response.json()
-            ai_response = data.get("predictions", [{"content": "No response from Gemini"}])[0]["content"]
+            ai_response = data["predictions"][0]["content"]
 
         except requests.exceptions.RequestException as e:
             st.error(f"Network/API Error: {e}")
             st.stop()
 
-    # Typing animation
+    # typing animation
     placeholder = st.empty()
     typed = ""
     for char in ai_response:
