@@ -111,7 +111,20 @@ st.markdown("""
 [data-testid="stSidebar"] { background-color: #111827; }
 .chat-bubble-user { background: #1e293b; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: right; }
 .chat-bubble-bot { background: #111827; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: left; transition: box-shadow 0.3s; }
-.chat-bubble-bot.thinking { box-shadow: 0 0 15px 3px #3b82f6; }
+.chat-bubble-bot.thinking { box-shadow: 0 0 15px 3px #3b82f6; position: relative; }
+.thinking-dots::after {
+    content: '';
+    display: inline-block;
+    width: 1em;
+    text-align: left;
+    animation: blink 1s steps(3, end) infinite;
+}
+@keyframes blink {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
 .center-title { text-align: center; margin-top: 20vh; font-size: 42px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
@@ -178,13 +191,18 @@ if prompt:
         bot_reply = query_multi_provider(conversation)
         words = bot_reply.split()
         full_text = ""
-        for word in words:
+        for i, word in enumerate(words):
             full_text += word + " "
-            bot_message["content"] = full_text
-            placeholder.markdown(f"<div class='chat-bubble-bot thinking'>{full_text}</div>", unsafe_allow_html=True)
+            dots = "." * ((i % 3) + 1)
+            placeholder.markdown(
+                f"<div class='chat-bubble-bot thinking thinking-dots'>{full_text}{dots}</div>", 
+                unsafe_allow_html=True
+            )
             time.sleep(0.03)
-        # final render without thinking glow
-        placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", unsafe_allow_html=True)
+        placeholder.markdown(
+            f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", 
+            unsafe_allow_html=True
+        )
 
     thread = threading.Thread(target=generate_response)
     thread.start()
