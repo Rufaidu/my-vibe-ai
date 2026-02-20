@@ -70,7 +70,6 @@ display_chat()
 user_input = st.chat_input("Message Vibe AI...")
 
 if user_input:
-    # Add user message
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
@@ -82,16 +81,16 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- GENERATIVE AI CALL ----------
+    # ---------- GOOGLE GENERATIVE AI ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # Load API key from secrets
+            # API key from Streamlit Secrets
             genai.configure(api_key=st.secrets["AI_STUDIO_API_KEY"])
 
             response = genai.chat.completions.create(
-                model="gemini-pro",  # uses the best available
+                model="gemini-pro",
                 messages=[
-                    {"role": "system", "content": "You are Vibe AI, a smart assistant."},
+                    {"role": "system", "content": "You are Vibe AI, a helpful assistant."},
                     {"role": "user", "content": prompt}
                 ],
                 max_output_tokens=250
@@ -114,6 +113,5 @@ if user_input:
     # Save final response
     st.session_state.messages[-1] = ("ai", ai_response)
     display_chat()
-
     c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ai_response))
     conn.commit()
