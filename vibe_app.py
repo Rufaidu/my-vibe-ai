@@ -14,14 +14,13 @@ except Exception:
     st.error("Add your HF_API_KEY to Streamlit Secrets before running.")
     st.stop()
 
-# Optional (if you have them)
 GEMINI_KEY = st.secrets.get("GEMINI_KEY", None)
 OPENAI_KEY = st.secrets.get("OPENAI_KEY", None)
 
 if OPENAI_KEY:
     openai.api_key = OPENAI_KEY
 
-# ================= MODELS =================
+# ================= HUGGING FACE MODELS =================
 HF_MODELS = [
     "https://router.huggingface.co/models/tiiuae/falcon-h1-1.5b-instruct",
     "https://router.huggingface.co/models/tiiuae/falcon3-1b-instruct",
@@ -31,6 +30,28 @@ HF_MODELS = [
 ]
 
 # ================= QUERY FUNCTIONS =================
+def query_openai(prompt):
+    if not OPENAI_KEY:
+        return None
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except:
+        return None
+
+def query_gemini(prompt):
+    if not GEMINI_KEY:
+        return None
+    # Replace this with real Gemini API call if you have access
+    # Example pseudo-code:
+    # response = requests.post("https://gemini.api.endpoint", headers={"Authorization": f"Bearer {GEMINI_KEY}"}, json={"prompt": prompt})
+    # return response.json()["response"]
+    return None  # placeholder
+
 def query_hf(prompt, retries=3, delay=2):
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     for model_url in HF_MODELS:
@@ -47,42 +68,22 @@ def query_hf(prompt, retries=3, delay=2):
                 continue
     return None
 
-def query_gemini(prompt):
-    if not GEMINI_KEY:
-        return None
-    # Pseudo Gemini API request — replace with real Gemini API code
-    # Example structure:
-    # resp = requests.post("https://gemini.api.endpoint", headers={"Authorization": f"Bearer {GEMINI_KEY}"}, json={"prompt": prompt})
-    # return resp.json()["response"]
-    return None  # placeholder if you don't have Gemini API yet
-
-def query_openai(prompt):
-    if not OPENAI_KEY:
-        return None
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        return response.choices[0].message.content
-    except:
-        return None
-
 def query_multi_provider(prompt):
-    # Try Hugging Face first
-    result = query_hf(prompt)
-    if result:
-        return result
-    # Then Gemini
-    result = query_gemini(prompt)
-    if result:
-        return result
-    # Then OpenAI
+    # 1️⃣ OpenAI
     result = query_openai(prompt)
     if result:
         return result
-    # All failed
+
+    # 2️⃣ Gemini
+    result = query_gemini(prompt)
+    if result:
+        return result
+
+    # 3️⃣ Hugging Face
+    result = query_hf(prompt)
+    if result:
+        return result
+
     return "⚠️ Sorry, all providers/models are busy. Please try again later."
 
 # ================= CUSTOM DARK UI =================
@@ -114,13 +115,15 @@ with st.sidebar:
         st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
         st.session_state.current_chat = new_id
         st.rerun()
+
     st.markdown("### Chats")
     for chat_id, chat_data in st.session_state.chats.items():
         if st.button(chat_data["title"], key=chat_id):
             st.session_state.current_chat = chat_id
             st.rerun()
+
     st.markdown("---")
-    st.caption("Using multiple providers: Hugging Face → Gemini → OpenAI")
+    st.caption("Provider priority: OpenAI → Gemini → Hugging Face Falcon")
     if st.button("🗑 Delete Current Chat"):
         del st.session_state.chats[st.session_state.current_chat]
         if not st.session_state.chats:
