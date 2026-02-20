@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
-import requests
 import time
+from aistudio import AIStudioClient  # AI Studio Python client
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
@@ -10,10 +10,11 @@ st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
 .block-container { padding-top: 1rem; padding-bottom: 6rem; }
-.user-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px; border-radius: 18px; margin: 8px 0; text-align: right; max-width: 75%; margin-left: auto; }
-.ai-bubble { background-color: #1f2937; padding: 12px; border-radius: 18px; margin: 8px 0; max-width: 75%; }
-.stChatInputContainer { position: fixed; bottom: 0; left: 0; right: 0; background-color: #111827; padding: 10px; }
+.user-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px; border-radius: 18px; margin: 8px 0; text-align: right; max-width: 75%; margin-left: auto; word-wrap: break-word; }
+.ai-bubble { background-color: #1f2937; padding: 12px; border-radius: 18px; margin: 8px 0; max-width: 75%; word-wrap: break-word; }
+.stChatInputContainer { position: fixed; bottom: 0; left: 0; right: 0; background-color: #111827; padding: 10px; z-index: 100; }
 .sidebar .sidebar-content { background-color: #0b0f19; }
+.chat-container { max-height: 80vh; overflow-y: auto; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,19 +51,29 @@ with st.sidebar:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ---------- DISPLAY CHAT ----------
-for role, message in st.session_state.messages:
-    if role == "user":
-        st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
+# ---------- CHAT CONTAINER ----------
+chat_placeholder = st.empty()
 
+def display_chat():
+    with chat_placeholder.container():
+        st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
+        for role, message in st.session_state.messages:
+            if role == "user":
+                st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+display_chat()
+
+# ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
 
 if user_input:
     st.session_state.messages.append(("user", user_input))
+    display_chat()
 
-    # build prompt with memory
+    # Build prompt with memory
     c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
     memory_text = ""
@@ -70,48 +81,28 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- AI STUDIO API CALL ----------
+    # ---------- AI STUDIO CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # Auto-select Gemini: fetch available models
-            model_list_url = "https://aistudio.google.com/api-keys/models"  # Replace with your AI Studio endpoint if different
-            headers = {
-                "Authorization": f"Bearer {st.secrets['AI_STUDIO_API_KEY']}"
-            }
-            models_resp = requests.get(model_list_url, headers=headers)
-            models_resp.raise_for_status()
-            available_models = models_resp.json().get("models", [])
-            
-            if not available_models:
-                st.error("No Gemini models available.")
-                st.stop()
-            
-            # pick the first available Gemini model
-            selected_model = next((m for m in available_models if "gemini" in m.lower()), available_models[0])
-            
-            # prediction call
-            predict_url = f"https://aistudio.google.com/api/v1/models/{selected_model}/predict"
-            payload = {
-                "prompt": prompt,
-                "max_output_tokens": 250
-            }
-            response = requests.post(predict_url, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            ai_response = data.get("prediction", "No response from AI Studio.")
-
-        except requests.exceptions.RequestException as e:
-            st.error(f"API Error: {e}")
+            api_key = st.secrets["AI_STUDIO_API_KEY"]
+            client = AIStudioClient(api_key=api_key)
+            ai_response = client.chat(prompt)  # default Gemini model
+        except Exception as e:
+            st.error(f"AI Studio Error: {e}")
             st.stop()
 
     # Typing animation
-    placeholder = st.empty()
     typed = ""
+    placeholder = st.empty()
     for char in ai_response:
         typed += char
-        placeholder.markdown(f"<div class='ai-bubble'>{typed}</div>", unsafe_allow_html=True)
+        st.session_state.messages.append(("ai", typed))
+        display_chat()
         time.sleep(0.01)
 
-    st.session_state.messages.append(("ai", ai_response))
+    # Save final AI response
+    st.session_state.messages[-1] = ("ai", ai_response)
+    display_chat()
+
     c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ai_response))
     conn.commit()
