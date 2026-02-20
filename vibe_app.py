@@ -6,8 +6,6 @@ import tempfile
 import requests
 from google import genai
 import yt_dlp
-import sqlite3
-from datetime import datetime, timedelta
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
@@ -22,39 +20,8 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- DATABASE ----------
-conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
-c = conn.cursor()
-
-# Create table safely
-c.execute("""
-CREATE TABLE IF NOT EXISTS conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_input TEXT,
-    ai_response TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-)
-""")
-conn.commit()
-
 # ---------- SESSION ----------
 if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "memory_limit" not in st.session_state:
-    st.session_state.memory_limit = 5
-
-# ---------- LOAD PAST 7 DAYS ----------
-seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-try:
-    c.execute("SELECT user_input, ai_response FROM conversations WHERE created_at >= ? ORDER BY id ASC",
-              (seven_days_ago,))
-    messages = c.fetchall()
-    st.session_state.messages = []
-    for u, a in messages:
-        st.session_state.messages.append(("user", u))
-        st.session_state.messages.append(("ai", a))
-except Exception as e:
-    st.warning(f"Failed to load old messages: {e}")
     st.session_state.messages = []
 
 # ---------- HEADER ----------
@@ -110,17 +77,6 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- SAVE USER INPUT ----------
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        c.execute("INSERT INTO conversations (user_input, ai_response, created_at) VALUES (?, ?, ?)",
-                  (user_input, "", now_str))
-        conn.commit()
-        conversation_row_id = c.lastrowid
-    except Exception as e:
-        st.error(f"Failed to save user input: {e}")
-        st.stop()
-
     # ---------- HANDLE URL DOWNLOAD ----------
     urls = contains_url(user_input)
     if urls:
@@ -143,9 +99,9 @@ if user_input:
                 ai_response = f"Download failed: {e}"
 
     else:
-        # ---------- MEMORY ----------
+        # ---------- AI RESPONSE ----------
         memory_text = ""
-        past = st.session_state.messages[-st.session_state.memory_limit*2:]
+        past = st.session_state.messages[-10:]  # last 10 messages in session
         for role, msg in past:
             if role == "user":
                 memory_text += f"User: {msg}\n"
@@ -189,9 +145,3 @@ if user_input:
     # ---------- APPEND AI RESPONSE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
-
-    try:
-        c.execute("UPDATE conversations SET ai_response=? WHERE id=?", (ai_response, conversation_row_id))
-        conn.commit()
-    except Exception as e:
-        st.error(f"Failed to save AI response: {e}")
