@@ -81,13 +81,13 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- GOOGLE GENERATIVE AI CALL ----------
+    # ---------- GENERATIVE AI CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
+            # Configure API key from Streamlit Secrets
             genai.configure(api_key=st.secrets["AI_STUDIO_API_KEY"])
-            # Generate text using the model
-            result = genai.models.generate_text(
-                model="gemini-pro",  # model name
+            result = genai.text.generate(
+                model="gemini-1.5",        # ← Free model
                 prompt=prompt,
                 max_output_tokens=250
             )
