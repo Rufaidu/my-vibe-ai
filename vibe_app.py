@@ -77,7 +77,6 @@ with st.sidebar:
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
-
 chat_placeholder = st.empty()
 
 def display_chat():
@@ -129,12 +128,28 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- ENSURE THREAD EXISTS ----------
+    # ---------- ENSURE THREAD EXISTS IMMEDIATELY ----------
     if st.session_state.thread_id is None:
         title = (user_input[:30] if len(user_input) > 0 else "New Chat")
-        c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
+        try:
+            c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
+            conn.commit()
+            st.session_state.thread_id = c.lastrowid
+        except Exception as e:
+            st.error(f"Failed to create thread: {e}")
+            st.stop()
+
+    # ---------- SAVE PLACEHOLDER CONVERSATION ----------
+    try:
+        c.execute(
+            "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
+            (st.session_state.thread_id, user_input, "")
+        )
         conn.commit()
-        st.session_state.thread_id = c.lastrowid
+        conversation_row_id = c.lastrowid
+    except Exception as e:
+        st.error(f"Failed to save conversation: {e}")
+        st.stop()
 
     # ---------- HANDLE URL DOWNLOAD ----------
     urls = contains_url(user_input)
@@ -203,13 +218,15 @@ if user_input:
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # ---------- SAVE FINAL MESSAGE ----------
+    # ---------- UPDATE CONVERSATION ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
 
-    # Always save conversation safely
-    c.execute(
-        "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
-        (st.session_state.thread_id, user_input, ai_response)
-    )
-    conn.commit()
+    try:
+        c.execute(
+            "UPDATE conversations SET ai_response=? WHERE id=?",
+            (ai_response, conversation_row_id)
+        )
+        conn.commit()
+    except Exception as e:
+        st.error(f"Failed to update conversation: {e}")
