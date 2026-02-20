@@ -74,13 +74,21 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # Build prompt with memory
+    # ---------- MEMORY & SYSTEM PROMPT ----------
     c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
     memory_text = ""
     for u, a in reversed(past):
         memory_text += f"User: {u}\nAI: {a}\n"
-    prompt = memory_text + f"User: {user_input}\nAI:"
+
+    # System instruction so AI knows its own name
+    system_instruction = (
+        "You are Vibe AI, a helpful and friendly assistant. "
+        "Always refer to yourself as 'Vibe AI'. "
+        "Keep responses concise and engaging."
+    )
+
+    prompt = system_instruction + "\n\n" + memory_text + f"User: {user_input}\nAI:"
 
     # ---------- CALL GEMINI ----------
     with st.spinner("Vibe AI is thinking..."):
