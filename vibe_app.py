@@ -3,7 +3,7 @@ import sqlite3
 import requests
 import time
 
-st.set_page_config(page_title="Vibe AI", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
 # ------------------ MOBILE APP CSS ------------------
 st.markdown("""
@@ -48,6 +48,10 @@ body {
     background-color: #111827;
     padding: 10px;
 }
+
+.sidebar .sidebar-content {
+    background-color: #0b0f19;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -64,12 +68,31 @@ CREATE TABLE IF NOT EXISTS conversations (
 """)
 
 # ------------------ HEADER ------------------
-st.markdown("<h2 style='text-align:center;'>🔥 Vibe AI</h2>", unsafe_allow_html=True)
-st.caption("Powered by Grok")
+st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
 # ------------------ SESSION ------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# ------------------ SIDEBAR ------------------
+with st.sidebar:
+    st.title("⚙️ Vibe Settings")
+
+    memory_limit = st.slider("Memory Depth", 1, 15, 5)
+
+    if st.button("🗑 Clear Chat"):
+        c.execute("DELETE FROM conversations")
+        conn.commit()
+        st.session_state.messages = []
+
+    st.divider()
+    st.subheader("📜 Chat History")
+
+    c.execute("SELECT user_input FROM conversations ORDER BY id DESC LIMIT 10")
+    history = c.fetchall()
+
+    for item in history:
+        st.caption("• " + item[0][:40])
 
 # ------------------ DISPLAY CHAT ------------------
 for role, message in st.session_state.messages:
@@ -85,7 +108,7 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
 
     # Retrieve memory
-    c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT 5")
+    c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
 
     memory_text = ""
@@ -94,24 +117,40 @@ if user_input:
 
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ------------------ GROK API CALL ------------------
+    # ------------------ GROK API CALL WITH ERROR HANDLING ------------------
     with st.spinner("Vibe AI is thinking..."):
-        response = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {st.secrets['GROK_API_KEY']}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "grok-1",
-                "messages": [
-                    {"role": "system", "content": "You are Vibe AI, a smart and modern assistant."},
-                    {"role": "user", "content": prompt}
-                ]
-            }
-        )
+        try:
+            response = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {st.secrets['GROK_API_KEY']}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "grok-1",
+                    "messages": [
+                        {"role": "system", "content": "You are Vibe AI, a smart and modern assistant."},
+                        {"role": "user", "content": prompt}
+                    ]
+                },
+                timeout=30
+            )
 
-        ai_response = response.json()["choices"][0]["message"]["content"]
+            # Check for HTTP errors
+            if response.status_code != 200:
+                st.error(f"API Error: {response.status_code} {response.text}")
+                st.stop()
+
+            data = response.json()
+            if "choices" not in data:
+                st.error(f"Unexpected API response: {data}")
+                st.stop()
+
+            ai_response = data["choices"][0]["message"]["content"]
+
+        except requests.exceptions.RequestException as e:
+            st.error(f"Network/API Error: {e}")
+            st.stop()
 
     # Typing animation
     placeholder = st.empty()
