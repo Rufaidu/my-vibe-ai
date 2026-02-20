@@ -44,7 +44,7 @@ if "memory_limit" not in st.session_state:
     st.session_state.memory_limit = 5
 
 # ---------- LOAD PAST 7 DAYS ----------
-seven_days_ago = datetime.now() - timedelta(days=7)
+seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
 c.execute("SELECT user_input, ai_response FROM conversations WHERE created_at >= ? ORDER BY id ASC",
           (seven_days_ago,))
 messages = c.fetchall()
@@ -107,8 +107,9 @@ if user_input:
     display_chat()
 
     # ---------- SAVE USER INPUT ----------
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ""))
+        c.execute("INSERT INTO conversations (user_input, ai_response, created_at) VALUES (?, ?, ?)", (user_input, "", now_str))
         conn.commit()
         conversation_row_id = c.lastrowid
     except Exception as e:
@@ -137,7 +138,7 @@ if user_input:
                 ai_response = f"Download failed: {e}"
 
     else:
-        # ---------- SESSION MEMORY ----------
+        # ---------- MEMORY ----------
         memory_text = ""
         past = st.session_state.messages[-st.session_state.memory_limit*2:]  # last n user+AI pairs
         for role, msg in past:
