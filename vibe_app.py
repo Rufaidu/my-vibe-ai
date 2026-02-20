@@ -5,7 +5,7 @@ import time
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
-# ------------------ CSS ------------------
+# ---------- CSS ----------
 st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
@@ -17,7 +17,7 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------ DATABASE ------------------
+# ---------- DATABASE ----------
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
@@ -28,10 +28,10 @@ CREATE TABLE IF NOT EXISTS conversations (
 )
 """)
 
-# ------------------ HEADER ------------------
+# ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
-# ------------------ SIDEBAR ------------------
+# ---------- SIDEBAR ----------
 with st.sidebar:
     st.title("⚙️ Settings")
     memory_limit = st.slider("Memory Depth", 1, 15, 5)
@@ -46,11 +46,11 @@ with st.sidebar:
     for item in history:
         st.caption("• " + item[0][:40])
 
-# ------------------ SESSION ------------------
+# ---------- SESSION ----------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ------------------ DISPLAY CHAT ------------------
+# ---------- DISPLAY CHAT ----------
 for role, message in st.session_state.messages:
     if role == "user":
         st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
@@ -70,21 +70,32 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ------------------ AI STUDIO API CALL ------------------
+    # ---------- AI STUDIO API CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            url = "https://aistudio.google.com/api/v1/predict"  # AI Studio API endpoint
+            # Auto-select Gemini: fetch available models
+            model_list_url = "https://aistudio.google.com/api-keys/models"  # Replace with your AI Studio endpoint if different
             headers = {
-                "Authorization": f"Bearer {st.secrets['AI_STUDIO_API_KEY']}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {st.secrets['AI_STUDIO_API_KEY']}"
             }
+            models_resp = requests.get(model_list_url, headers=headers)
+            models_resp.raise_for_status()
+            available_models = models_resp.json().get("models", [])
+            
+            if not available_models:
+                st.error("No Gemini models available.")
+                st.stop()
+            
+            # pick the first available Gemini model
+            selected_model = next((m for m in available_models if "gemini" in m.lower()), available_models[0])
+            
+            # prediction call
+            predict_url = f"https://aistudio.google.com/api/v1/models/{selected_model}/predict"
             payload = {
-                "model": "gemini-pro",   # you can change to "gemini-1.5"
                 "prompt": prompt,
                 "max_output_tokens": 250
             }
-
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response = requests.post(predict_url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             data = response.json()
             ai_response = data.get("prediction", "No response from AI Studio.")
