@@ -97,7 +97,13 @@ for msg in current_chat["messages"]:
     else:
         st.markdown(f"<div class='chat-bubble-bot'>{msg['content']}</div>", unsafe_allow_html=True)
 
-# ================= MEDIA UPLOAD =================
+# ================= CHAT INPUT =================
+prompt = st.chat_input(
+    "Message Vibe AI...",
+    disabled=st.session_state.is_generating
+)
+
+# ================= MEDIA UPLOAD (MOVE BELOW INPUT) =================
 uploaded_file = st.file_uploader("Upload a file (image, PDF, TXT)", type=["png","jpg","jpeg","pdf","txt"])
 
 if uploaded_file:
@@ -117,12 +123,7 @@ if uploaded_file:
     else:
         st.session_state.last_uploaded_text = None
 
-# ================= CHAT INPUT =================
-prompt = st.chat_input(
-    "Message Vibe AI...",
-    disabled=st.session_state.is_generating
-)
-
+# ================= GENERATE RESPONSE =================
 if prompt and not st.session_state.is_generating:
 
     st.session_state.is_generating = True
