@@ -2,3 +2,4 @@ streamlit
 requests
 openai
 google-generativeai  # only if you want Gemini SDK
+PyPDF2
