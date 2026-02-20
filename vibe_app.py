@@ -64,15 +64,16 @@ with st.sidebar:
         st.session_state.messages = []
     else:
         st.session_state.thread_id = thread_dict[selected]
-        c.execute(
-            "SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id ASC",
-            (st.session_state.thread_id,)
-        )
-        data = c.fetchall()
-        st.session_state.messages = []
-        for u, a in data:
-            st.session_state.messages.append(("user", u))
-            st.session_state.messages.append(("ai", a))
+        if st.session_state.thread_id is not None:
+            c.execute(
+                "SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id ASC",
+                (st.session_state.thread_id,)
+            )
+            data = c.fetchall()
+            st.session_state.messages = []
+            for u, a in data:
+                st.session_state.messages.append(("user", u))
+                st.session_state.messages.append(("ai", a))
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
@@ -111,7 +112,6 @@ def download_media(url):
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
     else:
-        # Generic file download
         local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
         r = requests.get(url, stream=True)
         r.raise_for_status()
@@ -129,15 +129,15 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # Create new thread if needed
+    # ---------- CREATE THREAD IF NEEDED ----------
     if st.session_state.thread_id is None:
         title = user_input[:30]
         c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
         conn.commit()
         st.session_state.thread_id = c.lastrowid
 
+    # ---------- HANDLE URL DOWNLOAD ----------
     urls = contains_url(user_input)
-
     if urls:
         url = urls[0]
         with st.spinner("Downloading media..."):
@@ -159,11 +159,14 @@ if user_input:
 
     else:
         # ---------- MEMORY ----------
-        c.execute(
-            f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
-            (st.session_state.thread_id,)
-        )
-        past = c.fetchall()
+        if st.session_state.thread_id is not None:
+            c.execute(
+                f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
+                (st.session_state.thread_id,)
+            )
+            past = c.fetchall()
+        else:
+            past = []
 
         memory_text = ""
         for u, a in reversed(past):
@@ -187,7 +190,7 @@ if user_input:
         except Exception as e:
             ai_response = f"AI Error: {e}"
 
-    # Typing animation
+    # ---------- TYPING ANIMATION ----------
     display_text = ""
     for char in ai_response:
         display_text += char
@@ -203,11 +206,13 @@ if user_input:
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
+    # ---------- SAVE FINAL MESSAGE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
 
-    c.execute(
-        "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
-        (st.session_state.thread_id, user_input, ai_response)
-    )
-    conn.commit()
+    if st.session_state.thread_id is not None:
+        c.execute(
+            "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
+            (st.session_state.thread_id, user_input, ai_response)
+        )
+        conn.commit()
