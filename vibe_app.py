@@ -1,8 +1,9 @@
 import streamlit as st
 import sqlite3
 import time
-from google import genai  # correct Google GenAI SDK
+from google import genai  # Correct GenAI SDK
 
+# ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
 # ---------- CSS ----------
@@ -53,6 +54,7 @@ if "messages" not in st.session_state:
 
 chat_placeholder = st.empty()
 
+# ---------- CHAT DISPLAY ----------
 def display_chat():
     with chat_placeholder.container():
         st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
@@ -65,12 +67,14 @@ def display_chat():
 
 display_chat()
 
+# ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
 
 if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
+    # Build prompt with memory
     c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
     memory_text = ""
@@ -78,27 +82,39 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
+    # ---------- CALL GEMINI ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
             client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
             response = client.models.generate_content(
-                model="gemini-2.5-flash",  # valid free API model
+                model="gemini-2.5-flash",  # Free-tier compatible model
                 contents=prompt
             )
-            ai_response = response.text
+            ai_response = response.text.strip()
 
         except Exception as e:
             st.error(f"AI Error: {e}")
             st.stop()
 
-    final_text = ""
+    # ---------- TYPING ANIMATION ----------
+    display_text = ""
     for char in ai_response:
-        final_text += char
-        st.session_state.messages.append(("ai", final_text))
-        display_chat()
+        display_text += char
+        # temporarily display typing
+        temp_messages = st.session_state.messages + [("ai", display_text)]
+        chat_placeholder.empty()
+        with chat_placeholder.container():
+            st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
+            for role, message in temp_messages:
+                if role == "user":
+                    st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    st.session_state.messages[-1] = ("ai", ai_response)
+    # Save final AI response
+    st.session_state.messages.append(("ai", ai_response))
     display_chat()
     c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ai_response))
     conn.commit()
