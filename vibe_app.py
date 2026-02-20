@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import time
-from google import genai  # correct GenAI SDK
+from google import genai  # correct Google GenAI SDK
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
@@ -51,7 +51,6 @@ with st.sidebar:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ---------- CHAT DISPLAY ----------
 chat_placeholder = st.empty()
 
 def display_chat():
@@ -66,14 +65,12 @@ def display_chat():
 
 display_chat()
 
-# ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
 
 if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # Build prompt with memory
     c.execute("SELECT user_input, ai_response FROM conversations ORDER BY id DESC LIMIT ?", (memory_limit,))
     past = c.fetchall()
     memory_text = ""
@@ -81,25 +78,19 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- CALL GEMINI VIA google-genai SDK ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # Create the client with your API key from secrets
             client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
-
-            # Generate text using the Gemini 1.5 model
             response = client.models.generate_content(
-                model="gemini-1.5-flash",  # free tier model name
+                model="gemini-2.5-flash",  # valid free API model
                 contents=prompt
             )
-
             ai_response = response.text
 
         except Exception as e:
             st.error(f"AI Error: {e}")
             st.stop()
 
-    # Typing animation + auto-scroll
     final_text = ""
     for char in ai_response:
         final_text += char
@@ -107,7 +98,6 @@ if user_input:
         display_chat()
         time.sleep(0.01)
 
-    # Save final response
     st.session_state.messages[-1] = ("ai", ai_response)
     display_chat()
     c.execute("INSERT INTO conversations (user_input, ai_response) VALUES (?, ?)", (user_input, ai_response))
