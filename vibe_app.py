@@ -81,22 +81,17 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- GOOGLE GENERATIVE AI ----------
+    # ---------- GOOGLE GENERATIVE AI CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            # API key from Streamlit Secrets
             genai.configure(api_key=st.secrets["AI_STUDIO_API_KEY"])
-
-            response = genai.chat.completions.create(
-                model="gemini-pro",
-                messages=[
-                    {"role": "system", "content": "You are Vibe AI, a helpful assistant."},
-                    {"role": "user", "content": prompt}
-                ],
+            # Generate text using the model
+            result = genai.models.generate_text(
+                model="gemini-pro",  # model name
+                prompt=prompt,
                 max_output_tokens=250
             )
-
-            ai_response = response.choices[0].message["content"].strip()
+            ai_response = result.text.strip()
 
         except Exception as e:
             st.error(f"Generative AI Error: {e}")
