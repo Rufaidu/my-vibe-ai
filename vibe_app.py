@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import time
-from aistudio import AIStudioClient  # AI Studio Python client
+import google.generativeai as genai
 
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
@@ -51,7 +51,7 @@ with st.sidebar:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ---------- CHAT CONTAINER ----------
+# ---------- CHAT DISPLAY ----------
 chat_placeholder = st.empty()
 
 def display_chat():
@@ -70,6 +70,7 @@ display_chat()
 user_input = st.chat_input("Message Vibe AI...")
 
 if user_input:
+    # Add user message
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
@@ -81,26 +82,36 @@ if user_input:
         memory_text += f"User: {u}\nAI: {a}\n"
     prompt = memory_text + f"User: {user_input}\nAI:"
 
-    # ---------- AI STUDIO CALL ----------
+    # ---------- GENERATIVE AI CALL ----------
     with st.spinner("Vibe AI is thinking..."):
         try:
-            api_key = st.secrets["AI_STUDIO_API_KEY"]
-            client = AIStudioClient(api_key=api_key)
-            ai_response = client.chat(prompt)  # default Gemini model
+            # Load API key from secrets
+            genai.configure(api_key=st.secrets["AI_STUDIO_API_KEY"])
+
+            response = genai.chat.completions.create(
+                model="gemini-pro",  # uses the best available
+                messages=[
+                    {"role": "system", "content": "You are Vibe AI, a smart assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_output_tokens=250
+            )
+
+            ai_response = response.choices[0].message["content"].strip()
+
         except Exception as e:
-            st.error(f"AI Studio Error: {e}")
+            st.error(f"Generative AI Error: {e}")
             st.stop()
 
-    # Typing animation
-    typed = ""
-    placeholder = st.empty()
+    # Typing animation + auto-scroll
+    final_text = ""
     for char in ai_response:
-        typed += char
-        st.session_state.messages.append(("ai", typed))
+        final_text += char
+        st.session_state.messages.append(("ai", final_text))
         display_chat()
         time.sleep(0.01)
 
-    # Save final AI response
+    # Save final response
     st.session_state.messages[-1] = ("ai", ai_response)
     display_chat()
 
