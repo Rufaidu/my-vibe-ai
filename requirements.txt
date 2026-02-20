@@ -1,5 +1,2 @@
-streamlit
-requests
-openai
-google-generativeai  # only if you want Gemini SDK
-PyPDF2
+streamlit==1.32.2
+requests==2.31.0
