@@ -39,9 +39,6 @@ if "current_chat" not in st.session_state:
     st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
     st.session_state.current_chat = new_id
 
-if "stop_generation" not in st.session_state:
-    st.session_state.stop_generation = False
-
 current_chat = st.session_state.chats[st.session_state.current_chat]
 
 # ================= QUERY FUNCTIONS =================
@@ -161,14 +158,8 @@ for msg in current_chat["messages"]:
 # ================= FILE UPLOAD =================
 uploaded_file = st.file_uploader("Upload file (optional)", type=["pdf", "png", "jpg", "jpeg"])
 
-# ================= CHAT INPUT WITH STOP BUTTON =================
-cols = st.columns([5, 1])
-with cols[0]:
-    prompt = st.chat_input("Message Vibe AI...")
-with cols[1]:
-    if st.button("⏹ Stop AI"):
-        st.session_state.stop_generation = True
-
+# ================= CHAT INPUT =================
+prompt = st.chat_input("Message Vibe AI...")
 if prompt:
     current_chat["messages"].append({"role": "user", "content": prompt})
     if current_chat["title"] == "New Chat":
@@ -179,7 +170,6 @@ if prompt:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
-    st.session_state.stop_generation = False
     placeholder = st.empty()
     bot_message = {"role": "assistant", "content": ""}
     current_chat["messages"].append(bot_message)
@@ -189,14 +179,12 @@ if prompt:
         words = bot_reply.split()
         full_text = ""
         for word in words:
-            if st.session_state.stop_generation:
-                break
             full_text += word + " "
             bot_message["content"] = full_text
             placeholder.markdown(f"<div class='chat-bubble-bot thinking'>{full_text}</div>", unsafe_allow_html=True)
             time.sleep(0.03)
-        if not st.session_state.stop_generation:
-            placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", unsafe_allow_html=True)
+        # final render without thinking glow
+        placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_message['content']}</div>", unsafe_allow_html=True)
 
     thread = threading.Thread(target=generate_response)
     thread.start()
