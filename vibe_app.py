@@ -1,12 +1,11 @@
 import streamlit as st
-import time
 import uuid
 import requests
 import openai
 import json
 
 # ================= PAGE CONFIG =================
-st.set_page_config(page_title="Vibe AI", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
 # ================= LOAD API KEYS =================
 try:
@@ -25,22 +24,25 @@ if OPENAI_KEY:
 HF_MODELS = [
     "https://router.huggingface.co/models/tiiuae/falcon-h1-1.5b-instruct",
     "https://router.huggingface.co/models/tiiuae/falcon3-1b-instruct",
-    "https://router.huggingface.co/models/google/flan-t5-xl",
-    "https://router.huggingface.co/models/google/flan-t5-large",
-    "https://router.huggingface.co/models/facebook/opt-2.7b-instruct"
+    "https://router.huggingface.co/models/google/flan-t5-large"
 ]
 
 # ================= SESSION STATE =================
 if "chats" not in st.session_state:
     st.session_state.chats = {}
+
 if "current_chat" not in st.session_state:
     new_id = str(uuid.uuid4())
     st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
     st.session_state.current_chat = new_id
 
+if "is_generating" not in st.session_state:
+    st.session_state.is_generating = False
+
 current_chat = st.session_state.chats[st.session_state.current_chat]
 
 # ================= QUERY FUNCTIONS =================
+
 def query_openai(prompt):
     if not OPENAI_KEY:
         return None
@@ -55,31 +57,33 @@ def query_openai(prompt):
     except:
         return None
 
+
 def query_gemini(prompt):
     if not GEMINI_KEY:
         return None
     try:
-        url = "https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate"
-        headers = {
-            "Authorization": f"Bearer {GEMINI_KEY}",
-            "Content-Type": "application/json"
-        }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_KEY}"
+        headers = {"Content-Type": "application/json"}
         payload = {
-            "prompt": {"text": prompt},
-            "temperature": 0.7,
-            "maxOutputTokens": 500
+            "contents": [{"parts": [{"text": prompt}]}]
         }
-        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
+        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
         data = resp.json()
-        return data["candidates"][0]["output"]
+        return data["candidates"][0]["content"]["parts"][0]["text"]
     except:
         return None
+
 
 def query_hf(prompt):
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     for model_url in HF_MODELS:
         try:
-            resp = requests.post(model_url, json={"inputs": prompt, "options":{"use_cache": False}}, headers=headers, timeout=10)
+            resp = requests.post(
+                model_url,
+                json={"inputs": prompt},
+                headers=headers,
+                timeout=15
+            )
             data = resp.json()
             if isinstance(data, dict) and "error" in data:
                 continue
@@ -88,35 +92,60 @@ def query_hf(prompt):
             continue
     return None
 
+
 def query_multi_provider(prompt):
     providers = [
-        {"name": "OpenAI", "func": query_openai},
-        {"name": "Gemini", "func": query_gemini},
-        {"name": "HuggingFace", "func": query_hf}
+        query_openai,
+        query_gemini,
+        query_hf
     ]
+
     for provider in providers:
         try:
-            result = provider["func"](prompt)
-            if result and "busy" not in result.lower():
+            result = provider(prompt)
+            if result:
                 return result
         except:
             continue
-    return "⚠️ Sorry, all providers/models are busy. Please try again later."
+
+    return "⚠️ All providers are currently busy. Please try again later."
+
 
 # ================= CUSTOM UI =================
 st.markdown("""
 <style>
 .stApp { background-color: #0f172a; color: white; }
 [data-testid="stSidebar"] { background-color: #111827; }
-.chat-bubble-user { background: #1e293b; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: right; }
-.chat-bubble-bot { background: #111827; padding: 14px; border-radius: 14px; margin-bottom: 10px; text-align: left; transition: box-shadow 0.3s; }
-.center-title { text-align: center; margin-top: 20vh; font-size: 42px; font-weight: bold; }
+
+.chat-bubble-user {
+    background: #1e293b;
+    padding: 14px;
+    border-radius: 14px;
+    margin-bottom: 10px;
+    text-align: right;
+}
+
+.chat-bubble-bot {
+    background: #111827;
+    padding: 14px;
+    border-radius: 14px;
+    margin-bottom: 10px;
+    text-align: left;
+}
+
+.center-title {
+    text-align: center;
+    margin-top: 20vh;
+    font-size: 42px;
+    font-weight: bold;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
 with st.sidebar:
-    st.title("🔥 Vibe AI")
+    st.title("🧠 Vibe AI")
+
     if st.button("➕ New Chat"):
         new_id = str(uuid.uuid4())
         st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
@@ -124,26 +153,18 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("### Chats")
+
     for chat_id, chat_data in st.session_state.chats.items():
         if st.button(chat_data["title"], key=chat_id):
             st.session_state.current_chat = chat_id
             st.rerun()
 
     st.markdown("---")
-    st.caption("Provider priority: OpenAI → Gemini → Hugging Face Falcon")
-    if st.button("🗑 Delete Current Chat"):
-        del st.session_state.chats[st.session_state.current_chat]
-        if not st.session_state.chats:
-            new_id = str(uuid.uuid4())
-            st.session_state.chats[new_id] = {"title": "New Chat", "messages": []}
-            st.session_state.current_chat = new_id
-        else:
-            st.session_state.current_chat = list(st.session_state.chats.keys())[0]
-        st.rerun()
+    st.caption("Provider order: OpenAI → Gemini → HuggingFace")
 
-# ================= LANDING SCREEN =================
+# ================= LANDING =================
 if not current_chat["messages"]:
-    st.markdown("<div class='center-title'>🔥 Vibe AI</div>", unsafe_allow_html=True)
+    st.markdown("<div class='center-title'>🧠 Vibe AI</div>", unsafe_allow_html=True)
     st.markdown("<center>Your intelligent AI companion</center>", unsafe_allow_html=True)
 
 # ================= DISPLAY CHAT =================
@@ -153,13 +174,21 @@ for msg in current_chat["messages"]:
     else:
         st.markdown(f"<div class='chat-bubble-bot'>{msg['content']}</div>", unsafe_allow_html=True)
 
-# ================= FILE UPLOAD =================
-uploaded_file = st.file_uploader("Upload file (optional)", type=["pdf", "png", "jpg", "jpeg"])
-
 # ================= CHAT INPUT =================
-prompt = st.chat_input("Message Vibe AI...")
-if prompt:
-    current_chat["messages"].append({"role": "user", "content": prompt})
+prompt = st.chat_input(
+    "Message Vibe AI...",
+    disabled=st.session_state.is_generating
+)
+
+if prompt and not st.session_state.is_generating:
+
+    st.session_state.is_generating = True
+
+    current_chat["messages"].append({
+        "role": "user",
+        "content": prompt
+    })
+
     if current_chat["title"] == "New Chat":
         current_chat["title"] = prompt[:30]
 
@@ -168,19 +197,35 @@ if prompt:
         role = "User" if msg["role"] == "user" else "Assistant"
         conversation += f"{role}: {msg['content']}\n"
 
-    # placeholder to show AI thinking
     placeholder = st.empty()
-    placeholder.markdown("<div class='chat-bubble-bot'><em>Vibe AI is thinking...</em></div>", unsafe_allow_html=True)
+    placeholder.markdown(
+        "<div class='chat-bubble-bot'><em>🧠 Vibe AI is thinking...</em></div>",
+        unsafe_allow_html=True
+    )
 
-    # call AI
-    bot_reply = query_multi_provider(conversation)
+    with st.spinner("🧠 Generating response..."):
+        bot_reply = query_multi_provider(conversation)
 
-    # stream AI word by word
-    full_text = ""
-    for word in bot_reply.split():
-        full_text += word + " "
-        placeholder.markdown(f"<div class='chat-bubble-bot'>{full_text}</div>", unsafe_allow_html=True)
-        time.sleep(0.03)
+    placeholder.markdown(
+        f"<div class='chat-bubble-bot'>{bot_reply}</div>",
+        unsafe_allow_html=True
+    )
 
-    # final render
-    placeholder.markdown(f"<div class='chat-bubble-bot'>{bot_reply}</div>", unsafe_allow_html=True)
+    current_chat["messages"].append({
+        "role": "assistant",
+        "content": bot_reply
+    })
+
+    st.session_state.is_generating = False
+
+    # Auto scroll
+    st.markdown(
+        """
+        <script>
+        window.scrollTo(0, document.body.scrollHeight);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.rerun()
