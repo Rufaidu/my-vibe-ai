@@ -1,7 +1,12 @@
 import streamlit as st
 import sqlite3
 import time
-from google import genai  # Correct Google GenAI SDK
+import re
+import os
+import tempfile
+from google import genai
+import yt_dlp
+import requests
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
@@ -10,11 +15,8 @@ st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
-.block-container { padding-top: 1rem; padding-bottom: 6rem; }
 .user-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px; border-radius: 18px; margin: 8px 0; text-align: right; max-width: 75%; margin-left: auto; word-wrap: break-word; }
 .ai-bubble { background-color: #1f2937; padding: 12px; border-radius: 18px; margin: 8px 0; max-width: 75%; word-wrap: break-word; }
-.stChatInputContainer { position: fixed; bottom: 0; left: 0; right: 0; background-color: #111827; padding: 10px; z-index: 100; }
-.sidebar .sidebar-content { background-color: #0b0f19; }
 .chat-container { max-height: 70vh; overflow-y: auto; }
 </style>
 """, unsafe_allow_html=True)
@@ -23,7 +25,6 @@ body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-se
 conn = sqlite3.connect("vibe_memory.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create tables for threads and messages
 c.execute("""
 CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +38,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     thread_id INTEGER,
     user_input TEXT,
-    ai_response TEXT,
-    FOREIGN KEY(thread_id) REFERENCES threads(id)
+    ai_response TEXT
 )
 """)
 
@@ -53,50 +53,74 @@ with st.sidebar:
     st.title("⚙️ Settings")
     memory_limit = st.slider("Memory Depth", 1, 15, 5)
 
-    # List threads
     c.execute("SELECT id, title FROM threads ORDER BY created_at DESC")
     threads = c.fetchall()
-    thread_options = {t[1]: t[0] for t in threads}  # title -> id
-    selected_thread_title = st.selectbox("Select a Chat", ["New Chat"] + list(thread_options.keys()))
+    thread_dict = {t[1]: t[0] for t in threads}
 
-    # Load selected thread
-    if selected_thread_title == "New Chat":
+    selected = st.selectbox("Select Chat", ["New Chat"] + list(thread_dict.keys()))
+
+    if selected == "New Chat":
         st.session_state.thread_id = None
         st.session_state.messages = []
     else:
-        st.session_state.thread_id = thread_options[selected_thread_title]
-        c.execute("SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id ASC", (st.session_state.thread_id,))
-        loaded = c.fetchall()
+        st.session_state.thread_id = thread_dict[selected]
+        c.execute(
+            "SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id ASC",
+            (st.session_state.thread_id,)
+        )
+        data = c.fetchall()
         st.session_state.messages = []
-        for u, a in loaded:
+        for u, a in data:
             st.session_state.messages.append(("user", u))
             st.session_state.messages.append(("ai", a))
-
-    if st.button("🗑 Clear Chat"):
-        if st.session_state.thread_id:
-            c.execute("DELETE FROM conversations WHERE thread_id=?", (st.session_state.thread_id,))
-            c.execute("DELETE FROM threads WHERE id=?", (st.session_state.thread_id,))
-            conn.commit()
-            st.session_state.messages = []
-            st.session_state.thread_id = None
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
-# ---------- CHAT DISPLAY ----------
 chat_placeholder = st.empty()
 
 def display_chat():
     with chat_placeholder.container():
         st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
-        for role, message in st.session_state.messages:
+        for role, msg in st.session_state.messages:
             if role == "user":
-                st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='user-bubble'>{msg}</div>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='ai-bubble'>{msg}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
 display_chat()
+
+# ---------- URL DETECTION ----------
+def contains_url(text):
+    url_pattern = r"(https?://[^\s]+)"
+    return re.findall(url_pattern, text)
+
+# ---------- DOWNLOAD FUNCTION ----------
+def download_media(url):
+    temp_dir = tempfile.TemporaryDirectory()
+    file_path = None
+
+    if "youtube.com" in url or "youtu.be" in url or "tiktok.com" in url:
+        ydl_opts = {
+            "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
+            "format": "best",
+            "quiet": True
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+    else:
+        # Generic file download
+        local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
+        r = requests.get(url, stream=True)
+        r.raise_for_status()
+        with open(local_filename, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+        file_path = local_filename
+
+    return file_path, temp_dir
 
 # ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
@@ -105,31 +129,54 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- CREATE NEW THREAD IF NEEDED ----------
+    # Create new thread if needed
     if st.session_state.thread_id is None:
-        thread_title = user_input[:30]  # first 30 chars as title
-        c.execute("INSERT INTO threads (title) VALUES (?)", (thread_title,))
+        title = user_input[:30]
+        c.execute("INSERT INTO threads (title) VALUES (?)", (title,))
         conn.commit()
         st.session_state.thread_id = c.lastrowid
 
-    # ---------- BUILD PROMPT ----------
-    c.execute("SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT ?", (st.session_state.thread_id, memory_limit))
-    past = c.fetchall()
-    memory_text = ""
-    for u, a in reversed(past):
-        memory_text += f"User: {u}\nAI: {a}\n"
+    urls = contains_url(user_input)
 
-    # System instruction
-    system_instruction = (
-        "You are Vibe AI, a helpful and friendly assistant. "
-        "Always refer to yourself as 'Vibe AI'. "
-        "Keep responses concise and engaging."
-    )
+    if urls:
+        url = urls[0]
+        with st.spinner("Downloading media..."):
+            try:
+                file_path, temp_dir = download_media(url)
+                st.success("Download ready!")
 
-    prompt = system_instruction + "\n\n" + memory_text + f"User: {user_input}\nAI:"
+                with open(file_path, "rb") as f:
+                    st.download_button(
+                        label="📥 Download File",
+                        data=f,
+                        file_name=os.path.basename(file_path)
+                    )
 
-    # ---------- CALL GEMINI ----------
-    with st.spinner("Vibe AI is thinking..."):
+                ai_response = "Vibe AI detected a URL and prepared your download."
+
+            except Exception as e:
+                ai_response = f"Download failed: {e}"
+
+    else:
+        # ---------- MEMORY ----------
+        c.execute(
+            f"SELECT user_input, ai_response FROM conversations WHERE thread_id=? ORDER BY id DESC LIMIT {memory_limit}",
+            (st.session_state.thread_id,)
+        )
+        past = c.fetchall()
+
+        memory_text = ""
+        for u, a in reversed(past):
+            memory_text += f"User: {u}\nAI: {a}\n"
+
+        system_instruction = (
+            "You are Vibe AI, a powerful assistant. "
+            "Always refer to yourself as 'Vibe AI'. "
+            "Be concise and helpful."
+        )
+
+        prompt = system_instruction + "\n\n" + memory_text + f"User: {user_input}\nAI:"
+
         try:
             client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
             response = client.models.generate_content(
@@ -138,28 +185,27 @@ if user_input:
             )
             ai_response = response.text.strip()
         except Exception as e:
-            st.error(f"AI Error: {e}")
-            st.stop()
+            ai_response = f"AI Error: {e}"
 
-    # ---------- TYPING ANIMATION ----------
+    # Typing animation
     display_text = ""
     for char in ai_response:
         display_text += char
-        temp_messages = st.session_state.messages + [("ai", display_text)]
+        temp = st.session_state.messages + [("ai", display_text)]
         chat_placeholder.empty()
         with chat_placeholder.container():
             st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
-            for role, message in temp_messages:
+            for role, msg in temp:
                 if role == "user":
-                    st.markdown(f"<div class='user-bubble'>{message}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='user-bubble'>{msg}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='ai-bubble'>{message}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='ai-bubble'>{msg}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # ---------- SAVE FINAL RESPONSE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
+
     c.execute(
         "INSERT INTO conversations (thread_id, user_input, ai_response) VALUES (?, ?, ?)",
         (st.session_state.thread_id, user_input, ai_response)
