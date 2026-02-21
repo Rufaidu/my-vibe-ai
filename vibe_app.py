@@ -71,7 +71,7 @@ def detect_media_type(url):
     except:
         return "unknown", None
 
-# ---------- ROBUST DOWNLOAD ----------
+# ---------- ROBUST DOWNLOAD (403 SAFE) ----------
 def download_media(url, mode):
     temp_dir = tempfile.TemporaryDirectory()
 
@@ -89,10 +89,12 @@ def download_media(url, mode):
         "noplaylist": True,
         "retries": 10,
         "http_headers": headers,
-        "merge_output_format": "mp4",
+        "nocheckcertificate": True,
+        "geo_bypass": True,
+        "geo_bypass_country": "US",
     }
 
-    # Mode logic
+    # ---- FORMAT STRATEGY (403 SAFE) ----
     if mode == "MP3 (Audio Only)":
         ydl_opts["format"] = "bestaudio/best"
         ydl_opts["postprocessors"] = [{
@@ -100,10 +102,9 @@ def download_media(url, mode):
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }]
-    elif mode == "MP4 (Video)":
-        ydl_opts["format"] = "bestvideo+bestaudio/best"
     else:
-        ydl_opts["format"] = "bestvideo+bestaudio/best"
+        # safer YouTube format (avoids aggressive merging)
+        ydl_opts["format"] = "best[ext=mp4]/best"
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -111,8 +112,6 @@ def download_media(url, mode):
 
         if mode == "MP3 (Audio Only)":
             file_path = os.path.splitext(file_path)[0] + ".mp3"
-        else:
-            file_path = os.path.splitext(file_path)[0] + ".mp4"
 
     # Validate file
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
