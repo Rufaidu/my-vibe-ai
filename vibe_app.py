@@ -26,6 +26,13 @@ if "messages" not in st.session_state:
 
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
+
+# ---------- FORMAT SELECTOR ----------
+download_mode = st.sidebar.selectbox(
+    "Download Format",
+    ["Auto Detect", "MP4 (Video)", "MP3 (Audio Only)"]
+)
+
 chat_placeholder = st.empty()
 
 def display_chat():
@@ -45,41 +52,62 @@ def contains_url(text):
     url_pattern = r"(https?://[^\s]+)"
     return re.findall(url_pattern, text)
 
-# ---------- UNIVERSAL DOWNLOAD FUNCTION ----------
-def download_media(url):
+# ---------- SMART DOWNLOAD ----------
+def download_media(url, mode):
     temp_dir = tempfile.TemporaryDirectory()
-    file_path = None
-
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0"
     }
 
-    # Try yt-dlp first for supported platforms
     try:
         ydl_opts = {
             "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
-            "format": "best",
-            "noplaylist": True,
             "quiet": True,
-            "http_headers": headers
+            "noplaylist": True,
+            "retries": 10,
+            "http_headers": headers,
         }
+
+        # If user forces MP3
+        if mode == "MP3 (Audio Only)":
+            ydl_opts["format"] = "bestaudio/best"
+            ydl_opts["postprocessors"] = [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }]
+
+        # If user forces MP4
+        elif mode == "MP4 (Video)":
+            ydl_opts["format"] = "bestvideo+bestaudio/best"
+            ydl_opts["merge_output_format"] = "mp4"
+
+        # Auto detect
+        else:
+            ydl_opts["format"] = "best"
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
 
+            # Fix extension after conversion
+            if mode == "MP3 (Audio Only)":
+                file_path = os.path.splitext(file_path)[0] + ".mp3"
+            elif mode == "MP4 (Video)":
+                file_path = os.path.splitext(file_path)[0] + ".mp4"
+
+        return file_path, temp_dir
+
     except Exception:
-        # Fallback for direct files
+        # fallback for direct files (images, PDFs, etc.)
         local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
         r = requests.get(url, stream=True, headers=headers)
         r.raise_for_status()
         with open(local_filename, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
+            for chunk in r.iter_content(8192):
                 f.write(chunk)
-        file_path = local_filename
+        return local_filename, temp_dir
 
-    return file_path, temp_dir
 
 # ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
@@ -89,21 +117,23 @@ if user_input:
     display_chat()
 
     urls = contains_url(user_input)
+
     if urls:
         url = urls[0]
-        with st.spinner("Downloading media..."):
+        with st.spinner("Processing download..."):
             try:
-                file_path, temp_dir = download_media(url)
+                file_path, temp_dir = download_media(url, download_mode)
+
                 st.success("Download ready!")
 
                 with open(file_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download File",
+                        "📥 Download File",
                         data=f,
                         file_name=os.path.basename(file_path)
                     )
 
-                ai_response = "Vibe AI detected a URL and prepared your download."
+                ai_response = "Vibe AI prepared your download successfully."
 
             except Exception as e:
                 ai_response = f"Download failed: {e}"
@@ -112,19 +142,18 @@ if user_input:
         # ---------- AI RESPONSE ----------
         memory_text = ""
         past = st.session_state.messages[-10:]
+
         for role, msg in past:
             if role == "user":
                 memory_text += f"User: {msg}\n"
             else:
                 memory_text += f"AI: {msg}\n"
 
-        system_instruction = (
-            "You are Vibe AI, a helpful assistant. "
-            "Always refer to yourself as 'Vibe AI'. "
-            "Be concise and helpful."
+        prompt = (
+            "You are Vibe AI. Be helpful and concise.\n\n"
+            + memory_text
+            + f"User: {user_input}\nAI:"
         )
-
-        prompt = system_instruction + "\n\n" + memory_text + f"User: {user_input}\nAI:"
 
         try:
             client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
@@ -136,20 +165,18 @@ if user_input:
         except Exception as e:
             ai_response = f"AI Error: {e}"
 
-    # ---------- TYPING ANIMATION ----------
+    # ---------- TYPING EFFECT ----------
     display_text = ""
     for char in ai_response:
         display_text += char
         temp = st.session_state.messages + [("ai", display_text)]
         chat_placeholder.empty()
         with chat_placeholder.container():
-            st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
             for role, msg in temp:
                 if role == "user":
                     st.markdown(f"<div class='user-bubble'>{msg}</div>", unsafe_allow_html=True)
                 else:
                     st.markdown(f"<div class='ai-bubble'>{msg}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
     st.session_state.messages.append(("ai", ai_response))
