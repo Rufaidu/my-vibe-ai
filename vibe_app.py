@@ -6,6 +6,7 @@ import tempfile
 import requests
 from google import genai
 import yt_dlp
+import mimetypes
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
@@ -52,13 +53,30 @@ def contains_url(text):
     url_pattern = r"(https?://[^\s]+)"
     return re.findall(url_pattern, text)
 
+# ---------- MEDIA TYPE DETECTION ----------
+def detect_media_type(url):
+    try:
+        ydl_opts = {"quiet": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        ext = info.get("ext", "")
+        vcodec = info.get("vcodec")
+        acodec = info.get("acodec")
+
+        if vcodec and vcodec != "none":
+            return "video", ext
+        elif acodec and acodec != "none":
+            return "audio", ext
+        else:
+            return "photo", ext
+    except Exception:
+        return "unknown", None
+
 # ---------- SMART DOWNLOAD ----------
 def download_media(url, mode):
     temp_dir = tempfile.TemporaryDirectory()
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         ydl_opts = {
             "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
@@ -68,7 +86,7 @@ def download_media(url, mode):
             "http_headers": headers,
         }
 
-        # If user forces MP3
+        # Force MP3
         if mode == "MP3 (Audio Only)":
             ydl_opts["format"] = "bestaudio/best"
             ydl_opts["postprocessors"] = [{
@@ -76,13 +94,11 @@ def download_media(url, mode):
                 "preferredcodec": "mp3",
                 "preferredquality": "192",
             }]
-
-        # If user forces MP4
+        # Force MP4
         elif mode == "MP4 (Video)":
             ydl_opts["format"] = "bestvideo+bestaudio/best"
             ydl_opts["merge_output_format"] = "mp4"
-
-        # Auto detect
+        # Auto detect: best available
         else:
             ydl_opts["format"] = "best"
 
@@ -90,7 +106,6 @@ def download_media(url, mode):
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
 
-            # Fix extension after conversion
             if mode == "MP3 (Audio Only)":
                 file_path = os.path.splitext(file_path)[0] + ".mp3"
             elif mode == "MP4 (Video)":
@@ -99,7 +114,7 @@ def download_media(url, mode):
         return file_path, temp_dir
 
     except Exception:
-        # fallback for direct files (images, PDFs, etc.)
+        # fallback for direct files (images, PDFs)
         local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
         r = requests.get(url, stream=True, headers=headers)
         r.raise_for_status()
@@ -107,7 +122,6 @@ def download_media(url, mode):
             for chunk in r.iter_content(8192):
                 f.write(chunk)
         return local_filename, temp_dir
-
 
 # ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
@@ -120,20 +134,47 @@ if user_input:
 
     if urls:
         url = urls[0]
+
+        # Detect type first
+        media_type, ext = detect_media_type(url)
+        st.info(f"Detected: {media_type.upper()} | Original Format: .{ext}")
+
+        # Smart auto-switch
+        if media_type == "video":
+            selected_mode = "MP4 (Video)"
+        elif media_type == "audio":
+            selected_mode = "MP3 (Audio Only)"
+        else:
+            selected_mode = "Auto Detect"
+
+        # Respect user selection
+        if download_mode != "Auto Detect":
+            selected_mode = download_mode
+
+        # Download
         with st.spinner("Processing download..."):
             try:
-                file_path, temp_dir = download_media(url, download_mode)
+                file_path, temp_dir = download_media(url, selected_mode)
 
-                st.success("Download ready!")
+                file_name = os.path.basename(file_path)
+                mime_type, _ = mimetypes.guess_type(file_name)
+                if mime_type is None:
+                    if media_type == "video":
+                        mime_type = "video/mp4"
+                    elif media_type == "audio":
+                        mime_type = "audio/mpeg"
+                    else:
+                        mime_type = "application/octet-stream"
 
                 with open(file_path, "rb") as f:
                     st.download_button(
                         "📥 Download File",
                         data=f,
-                        file_name=os.path.basename(file_path)
+                        file_name=file_name,
+                        mime=mime_type
                     )
 
-                ai_response = "Vibe AI prepared your download successfully."
+                ai_response = f"Vibe AI prepared your {media_type} download successfully."
 
             except Exception as e:
                 ai_response = f"Download failed: {e}"
@@ -142,7 +183,6 @@ if user_input:
         # ---------- AI RESPONSE ----------
         memory_text = ""
         past = st.session_state.messages[-10:]
-
         for role, msg in past:
             if role == "user":
                 memory_text += f"User: {msg}\n"
