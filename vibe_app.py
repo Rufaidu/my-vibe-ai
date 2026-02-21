@@ -45,23 +45,34 @@ def contains_url(text):
     url_pattern = r"(https?://[^\s]+)"
     return re.findall(url_pattern, text)
 
-# ---------- DOWNLOAD FUNCTION ----------
+# ---------- UNIVERSAL DOWNLOAD FUNCTION ----------
 def download_media(url):
     temp_dir = tempfile.TemporaryDirectory()
     file_path = None
 
-    if "youtube.com" in url or "youtu.be" in url or "tiktok.com" in url:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/114.0.0.0 Safari/537.36"
+    }
+
+    # Try yt-dlp first for supported platforms
+    try:
         ydl_opts = {
             "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
             "format": "best",
-            "quiet": True
+            "noplaylist": True,
+            "quiet": True,
+            "http_headers": headers
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
-    else:
+
+    except Exception:
+        # Fallback for direct files
         local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
-        r = requests.get(url, stream=True)
+        r = requests.get(url, stream=True, headers=headers)
         r.raise_for_status()
         with open(local_filename, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -77,7 +88,6 @@ if user_input:
     st.session_state.messages.append(("user", user_input))
     display_chat()
 
-    # ---------- HANDLE URL DOWNLOAD ----------
     urls = contains_url(user_input)
     if urls:
         url = urls[0]
@@ -101,7 +111,7 @@ if user_input:
     else:
         # ---------- AI RESPONSE ----------
         memory_text = ""
-        past = st.session_state.messages[-10:]  # last 10 messages in session
+        past = st.session_state.messages[-10:]
         for role, msg in past:
             if role == "user":
                 memory_text += f"User: {msg}\n"
@@ -142,6 +152,5 @@ if user_input:
             st.markdown("</div>", unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # ---------- APPEND AI RESPONSE ----------
     st.session_state.messages.append(("ai", ai_response))
     display_chat()
