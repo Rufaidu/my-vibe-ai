@@ -4,19 +4,19 @@ import time
 import os
 import tempfile
 import requests
-from google import genai
 import yt_dlp
 import mimetypes
+from google import genai
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Vibe AI", page_icon="🧠", layout="wide")
 
-# ---------- CSS ----------
+# ---------- STYLING ----------
 st.markdown("""
 <style>
 body { background-color: #0b0f19; color: white; font-family: 'Segoe UI', sans-serif; }
-.user-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px; border-radius: 18px; margin: 8px 0; text-align: right; max-width: 75%; margin-left: auto; word-wrap: break-word; }
-.ai-bubble { background-color: #1f2937; padding: 12px; border-radius: 18px; margin: 8px 0; max-width: 75%; word-wrap: break-word; }
+.user-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px; border-radius: 18px; margin: 8px 0; text-align: right; max-width: 75%; margin-left: auto; }
+.ai-bubble { background-color: #1f2937; padding: 12px; border-radius: 18px; margin: 8px 0; max-width: 75%; }
 .chat-container { max-height: 70vh; overflow-y: auto; }
 </style>
 """, unsafe_allow_html=True)
@@ -28,7 +28,7 @@ if "messages" not in st.session_state:
 # ---------- HEADER ----------
 st.markdown("<h2 style='text-align:center;'>🧠 Vibe AI</h2>", unsafe_allow_html=True)
 
-# ---------- FORMAT SELECTOR ----------
+# ---------- SIDEBAR ----------
 download_mode = st.sidebar.selectbox(
     "Download Format",
     ["Auto Detect", "MP4 (Video)", "MP3 (Audio Only)"]
@@ -50,14 +50,12 @@ display_chat()
 
 # ---------- URL DETECTION ----------
 def contains_url(text):
-    url_pattern = r"(https?://[^\s]+)"
-    return re.findall(url_pattern, text)
+    return re.findall(r"(https?://[^\s]+)", text)
 
-# ---------- MEDIA TYPE DETECTION ----------
+# ---------- MEDIA DETECTION ----------
 def detect_media_type(url):
     try:
-        ydl_opts = {"quiet": True, "skip_download": True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
             info = ydl.extract_info(url, download=False)
 
         ext = info.get("ext", "")
@@ -70,58 +68,57 @@ def detect_media_type(url):
             return "audio", ext
         else:
             return "photo", ext
-    except Exception:
+    except:
         return "unknown", None
 
-# ---------- SMART DOWNLOAD ----------
+# ---------- ROBUST DOWNLOAD ----------
 def download_media(url, mode):
     temp_dir = tempfile.TemporaryDirectory()
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        ydl_opts = {
-            "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
-            "quiet": True,
-            "noplaylist": True,
-            "retries": 10,
-            "http_headers": headers,
-        }
 
-        # Force MP3
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/116.0.5845.97 Safari/537.36"
+        )
+    }
+
+    ydl_opts = {
+        "outtmpl": os.path.join(temp_dir.name, "%(title)s.%(ext)s"),
+        "quiet": True,
+        "noplaylist": True,
+        "retries": 10,
+        "http_headers": headers,
+        "merge_output_format": "mp4",
+    }
+
+    # Mode logic
+    if mode == "MP3 (Audio Only)":
+        ydl_opts["format"] = "bestaudio/best"
+        ydl_opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+    elif mode == "MP4 (Video)":
+        ydl_opts["format"] = "bestvideo+bestaudio/best"
+    else:
+        ydl_opts["format"] = "bestvideo+bestaudio/best"
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
+
         if mode == "MP3 (Audio Only)":
-            ydl_opts["format"] = "bestaudio/best"
-            ydl_opts["postprocessors"] = [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }]
-        # Force MP4
-        elif mode == "MP4 (Video)":
-            ydl_opts["format"] = "bestvideo+bestaudio/best"
-            ydl_opts["merge_output_format"] = "mp4"
-        # Auto detect: best available
+            file_path = os.path.splitext(file_path)[0] + ".mp3"
         else:
-            ydl_opts["format"] = "best"
+            file_path = os.path.splitext(file_path)[0] + ".mp4"
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
+    # Validate file
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        raise Exception("Download failed or empty file.")
 
-            if mode == "MP3 (Audio Only)":
-                file_path = os.path.splitext(file_path)[0] + ".mp3"
-            elif mode == "MP4 (Video)":
-                file_path = os.path.splitext(file_path)[0] + ".mp4"
-
-        return file_path, temp_dir
-
-    except Exception:
-        # fallback for direct files (images, PDFs)
-        local_filename = os.path.join(temp_dir.name, url.split("/")[-1])
-        r = requests.get(url, stream=True, headers=headers)
-        r.raise_for_status()
-        with open(local_filename, "wb") as f:
-            for chunk in r.iter_content(8192):
-                f.write(chunk)
-        return local_filename, temp_dir
+    return file_path, temp_dir
 
 # ---------- INPUT ----------
 user_input = st.chat_input("Message Vibe AI...")
@@ -135,9 +132,8 @@ if user_input:
     if urls:
         url = urls[0]
 
-        # Detect type first
         media_type, ext = detect_media_type(url)
-        st.info(f"Detected: {media_type.upper()} | Original Format: .{ext}")
+        st.info(f"Detected: {media_type.upper()} | Original: .{ext}")
 
         # Smart auto-switch
         if media_type == "video":
@@ -147,24 +143,17 @@ if user_input:
         else:
             selected_mode = "Auto Detect"
 
-        # Respect user selection
         if download_mode != "Auto Detect":
             selected_mode = download_mode
 
-        # Download
-        with st.spinner("Processing download..."):
+        with st.spinner("Downloading..."):
             try:
                 file_path, temp_dir = download_media(url, selected_mode)
 
                 file_name = os.path.basename(file_path)
                 mime_type, _ = mimetypes.guess_type(file_name)
                 if mime_type is None:
-                    if media_type == "video":
-                        mime_type = "video/mp4"
-                    elif media_type == "audio":
-                        mime_type = "audio/mpeg"
-                    else:
-                        mime_type = "application/octet-stream"
+                    mime_type = "application/octet-stream"
 
                 with open(file_path, "rb") as f:
                     st.download_button(
@@ -174,7 +163,7 @@ if user_input:
                         mime=mime_type
                     )
 
-                ai_response = f"Vibe AI prepared your {media_type} download successfully."
+                ai_response = "Download completed successfully."
 
             except Exception as e:
                 ai_response = f"Download failed: {e}"
@@ -182,18 +171,10 @@ if user_input:
     else:
         # ---------- AI RESPONSE ----------
         memory_text = ""
-        past = st.session_state.messages[-10:]
-        for role, msg in past:
-            if role == "user":
-                memory_text += f"User: {msg}\n"
-            else:
-                memory_text += f"AI: {msg}\n"
+        for role, msg in st.session_state.messages[-10:]:
+            memory_text += f"{role}: {msg}\n"
 
-        prompt = (
-            "You are Vibe AI. Be helpful and concise.\n\n"
-            + memory_text
-            + f"User: {user_input}\nAI:"
-        )
+        prompt = f"You are Vibe AI.\n{memory_text}\nUser: {user_input}\nAI:"
 
         try:
             client = genai.Client(api_key=st.secrets["AI_STUDIO_API_KEY"])
